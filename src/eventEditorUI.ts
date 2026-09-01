@@ -72,7 +72,13 @@ export class EventEditorModal extends Modal {
 		app: App,
 		private mode: "create" | "edit",
 		private initial: EventEditorInitial,
-		private onSubmit: (result: EventEditorResult) => void
+		private onSubmit: (result: EventEditorResult) => void,
+		// Set when the caller already knows the type and it shouldn't be
+		// changeable here -- e.g. the Finance tab's "+ Subscription", where
+		// offering Meeting/Event/Task would just be a way to create the
+		// wrong kind of note. Shows this text in place of the dropdown, the
+		// same way an Invoice's type is locked below.
+		private lockedTypeLabel?: string
 	) {
 		super(app);
 	}
@@ -90,10 +96,10 @@ export class EventEditorModal extends Modal {
 
 		const isInvoice = this.initial.type === "invoice";
 		let typeSelect: HTMLSelectElement | null = null;
-		if (isInvoice) {
+		if (isInvoice || this.lockedTypeLabel) {
 			contentEl.createDiv({
 				cls: "companion-event-editor-type-locked",
-				text: "Invoice — edited via the Invoice Create Procedure, not here.",
+				text: isInvoice ? "Invoice — edited via the Invoice Create Procedure, not here." : (this.lockedTypeLabel as string),
 			});
 		} else {
 			typeSelect = contentEl.createEl("select", { cls: "companion-event-editor-type" });

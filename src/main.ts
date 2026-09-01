@@ -1,6 +1,6 @@
-import { Notice, Plugin, WorkspaceLeaf } from "obsidian";
+import { App, FuzzySuggestModal, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { CalendarView, VIEW_TYPE_CALENDAR } from "./CalendarView";
-import { DashboardView, VIEW_TYPE_DASHBOARD } from "./DashboardView";
+import { DashboardEmbed, DashboardView, VIEW_TYPE_DASHBOARD, refreshAllDashboardEmbeds } from "./DashboardView";
 import { FinanceView, VIEW_TYPE_FINANCE } from "./FinanceView";
 import { RemindersView, VIEW_TYPE_REMINDERS } from "./RemindersView";
 import { TaskBoardView, VIEW_TYPE_TASKS } from "./TaskBoardView";
@@ -49,17 +49,38 @@ export default class CompanionPlugin extends Plugin {
 		// Reading view only, deliberately -- a Live Preview / Edit-mode
 		// banner needs a CodeMirror extension, real scope creep for what's
 		// meant to be a small addition.
+		//
+		// `ctx.docId` is stable for every block of the *same* render pass,
+		// so it's used to insert the image exactly once per render rather
+		// than trying to detect "is this the first block" from DOM sibling
+		// position -- Reading view's `.markdown-preview-section` can have a
+		// non-content spacer div ahead of the real first block, which would
+		// have made that original approach silently insert nothing at all.
+		// The set is capped so a very long session can't grow it forever.
+		const bannerInsertedDocIds = new Set<string>();
 		this.registerMarkdownPostProcessor((el, ctx) => {
 			const banner = ctx.frontmatter?.banner;
 			if (!banner || typeof banner !== "string") return;
+			if (bannerInsertedDocIds.has(ctx.docId)) return;
 			const container = el.parentElement;
-			if (!container || container.firstElementChild !== el) return; // only the first block of the render pass
+			if (!container) return;
+			if (bannerInsertedDocIds.size > 500) bannerInsertedDocIds.clear();
+			bannerInsertedDocIds.add(ctx.docId);
 			const file = this.app.metadataCache.getFirstLinkpathDest(banner, ctx.sourcePath);
 			const src = file ? this.app.vault.getResourcePath(file) : banner;
 			const img = document.createElement("img");
 			img.className = "companion-banner";
 			img.src = src;
-			container.insertBefore(img, el);
+			container.insertBefore(img, container.firstChild);
+		});
+
+		// The Daily Note (or any note) embeds the Dashboard's timer/agenda/
+		// overdue/due-soon body directly via a fenced ```companion-dashboard```
+		// code block -- same render functions the standalone tab uses (see
+		// DashboardView.ts), so the Daily Note template can carry the
+		// Dashboard instead of it living only in its own tab.
+		this.registerMarkdownCodeBlockProcessor("companion-dashboard", (_source, el, ctx) => {
+			ctx.addChild(new DashboardEmbed(el, this.app));
 		});
 
 		// Lets Ctrl/Cmd+hover on a Companion item trigger Obsidian's own
@@ -171,6 +192,48 @@ export default class CompanionPlugin extends Plugin {
 					new Notice(`Invoice created: ${file.basename}`);
 					void this.app.workspace.getLeaf("tab").openFile(file);
 				}).open();
+			},
+		});
+
+		// Discoverability fix: the banner feature only ever worked by typing
+		// a `banner:` property into frontmatter by hand, with no UI pointing
+		// at it anywhere -- unlike every other Companion feature. These two
+		// commands are the actual entry point now.
+		this.addCommand({
+			id: "companion-set-banner",
+			name: "Set banner image for this note",
+			checkCallback: (checking) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!file || file.extension !== "md") return false;
+				if (checking) return true;
+				new BannerImagePickerModal(this.app, (image) => {
+					this.app.fileManager
+						.processFrontMatter(file, (fm: Record<string, unknown>) => {
+							fm["banner"] = image.path;
+						})
+						.then(
+							() => new Notice("Banner set — switch to Reading view to see it."),
+							(err: Error) => new Notice(err.message)
+						);
+				}).open();
+				return true;
+			},
+		});
+		this.addCommand({
+			id: "companion-remove-banner",
+			name: "Remove banner from this note",
+			checkCallback: (checking) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!file || file.extension !== "md") return false;
+				const hasBanner = !!this.app.metadataCache.getFileCache(file)?.frontmatter?.banner;
+				if (!hasBanner) return false;
+				if (checking) return true;
+				this.app.fileManager
+					.processFrontMatter(file, (fm: Record<string, unknown>) => {
+						delete fm["banner"];
+					})
+					.then(undefined, (err: Error) => new Notice(err.message));
+				return true;
 			},
 		});
 
@@ -293,6 +356,7 @@ export default class CompanionPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TIME)) {
 			if (leaf.view instanceof TimeView) leaf.view.refresh();
 		}
+		refreshAllDashboardEmbeds();
 	}
 
 	/** Persists settings and immediately refreshes any open view, so e.g. a
@@ -314,5 +378,32 @@ export default class CompanionPlugin extends Plugin {
 			await leaf.setViewState({ type: viewType, active: true });
 		}
 		await workspace.revealLeaf(leaf);
+	}
+}
+
+/** Picks any image file in the vault, for the "Set banner image" command --
+ * an ordinary Obsidian fuzzy-search picker rather than requiring the path
+ * to be typed into frontmatter by hand. */
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
+
+class BannerImagePickerModal extends FuzzySuggestModal<TFile> {
+	constructor(
+		app: App,
+		private onChoose: (file: TFile) => void
+	) {
+		super(app);
+		this.setPlaceholder("Pick an image for the banner…");
+	}
+
+	getItems(): TFile[] {
+		return this.app.vault.getFiles().filter((f) => IMAGE_EXTENSIONS.has(f.extension.toLowerCase()));
+	}
+
+	getItemText(file: TFile): string {
+		return file.path;
+	}
+
+	onChooseItem(file: TFile): void {
+		this.onChoose(file);
 	}
 }

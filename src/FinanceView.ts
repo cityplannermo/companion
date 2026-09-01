@@ -182,26 +182,34 @@ export class FinanceView extends ItemView {
 		});
 	}
 
-	/** Opens the shared editor modal to create a new subscription -- type
-	 * defaults to Reminder, but the modal's own type dropdown still lets it
-	 * be changed, same as everywhere else this modal is used. */
+	/** Opens the shared editor modal to create a new subscription -- type is
+	 * locked to Reminder here (see lockedTypeLabel on the modal), since
+	 * anything created from the Finance tab is a subscription by
+	 * definition; the dropdown is only offered where the type is genuinely
+	 * still a choice, e.g. the Calendar's own "+ New item". */
 	private openCreate(): void {
-		new EventEditorModal(this.app, "create", { title: "", type: "reminder", timeStr: "00:00" }, (result) => {
-			createQuickNote(
-				this.app,
-				result.type,
-				formatDate(new Date()),
-				result.title,
-				result.allDay ? "00:00" : result.startTime,
-				result.allDay ? undefined : result.endTime,
-				result.client,
-				result.recur,
-				result.cost
-			).then(
-				() => this.refresh(),
-				(err: Error) => new Notice(err.message)
-			);
-		}).open();
+		new EventEditorModal(
+			this.app,
+			"create",
+			{ title: "", type: "reminder", timeStr: "00:00" },
+			(result) => {
+				createQuickNote(
+					this.app,
+					result.type,
+					formatDate(new Date()),
+					result.title,
+					result.allDay ? "00:00" : result.startTime,
+					result.allDay ? undefined : result.endTime,
+					result.client,
+					result.recur,
+					result.cost
+				).then(
+					() => this.refresh(),
+					(err: Error) => new Notice(err.message)
+				);
+			},
+			"Subscription — a recurring Reminder with a cost, created here as one."
+		).open();
 	}
 
 	/** Opens the shared editor modal (title, time, repeat, cost) on an
@@ -226,7 +234,8 @@ export class FinanceView extends ItemView {
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
 				);
-			}
+			},
+			"Subscription — a recurring Reminder with a cost, edited here as one."
 		).open();
 	}
 }

@@ -23,15 +23,26 @@ import type { CompanionSettings } from "./settings";
 
 export const VIEW_TYPE_CALENDAR = "companion-calendar-view";
 
-const TYPE_LABELS: Record<CompanionEventType, string> = {
+type CalendarVisualType = CompanionEventType | "subscription";
+
+const TYPE_LABELS: Record<CalendarVisualType, string> = {
 	meeting: "Meeting",
 	reminder: "Reminder",
 	task: "Task",
 	invoice: "Invoice",
 	event: "Event",
+	subscription: "Subscription",
 };
 
-const TYPE_ORDER: CompanionEventType[] = ["meeting", "event", "reminder", "task", "invoice"];
+// "Reminder" plus its own row in the legend/day grid for subscriptions, since
+// a subscription is just a recurring Reminder with a cost (see CompanionEvent's
+// `cost` field) rather than a distinct note type of its own -- editing one
+// still goes through the same Reminder fields everywhere else in the plugin.
+const TYPE_ORDER: CalendarVisualType[] = ["meeting", "event", "reminder", "subscription", "task", "invoice"];
+
+function visualType(ev: CompanionEvent): CalendarVisualType {
+	return ev.type === "reminder" && ev.recur && ev.cost != null ? "subscription" : ev.type;
+}
 
 type CalendarMode = "month" | "week" | "day";
 
@@ -430,7 +441,7 @@ export class CalendarView extends ItemView {
 			const events = this.displayIndex.get(dateStr) ?? [];
 			for (const ev of events.slice(0, 2)) {
 				const pill = cell.createDiv({
-					cls: `companion-pill companion-pill-${ev.type}`,
+					cls: `companion-pill companion-pill-${visualType(ev)}`,
 					text: truncate(ev.title, 22),
 				});
 				this.wireEventInteractions(pill, ev);
@@ -481,7 +492,7 @@ export class CalendarView extends ItemView {
 			const cell = allDayRow.createDiv({ cls: "companion-timegrid-allday-cell" });
 			const events = (this.displayIndex.get(dateStr) ?? []).filter((ev) => ev.time === "00:00");
 			for (const ev of events) {
-				const pill = cell.createDiv({ cls: `companion-pill companion-pill-${ev.type}`, text: truncate(ev.title, 18) });
+				const pill = cell.createDiv({ cls: `companion-pill companion-pill-${visualType(ev)}`, text: truncate(ev.title, 18) });
 				this.wireEventInteractions(pill, ev);
 			}
 			cell.onclick = () => {
@@ -516,7 +527,7 @@ export class CalendarView extends ItemView {
 					});
 					for (const ev of events) {
 						const pill = halfCell.createDiv({
-							cls: `companion-pill companion-pill-${ev.type} companion-pill-timed`,
+							cls: `companion-pill companion-pill-${visualType(ev)} companion-pill-timed`,
 							text: truncate(`${ev.time} ${ev.title}`, 24),
 						});
 						this.wireEventInteractions(pill, ev);
@@ -546,7 +557,7 @@ export class CalendarView extends ItemView {
 			for (const ev of blockEvents) {
 				const startMin = toMinutes(ev.time);
 				const endMin = Math.max(toMinutes(ev.endTime as string), startMin + 15);
-				const block = body.createDiv({ cls: `companion-block-event companion-pill-${ev.type}` });
+				const block = body.createDiv({ cls: `companion-block-event companion-pill-${visualType(ev)}` });
 				// Pixel-based, not percentage-based: .companion-timegrid-body is a
 				// flex-shrinkable scroll container (flex: 1; min-height: 0) whose
 				// rendered height can be smaller than its 24*HOUR_ROW_PX scrollable
@@ -930,7 +941,7 @@ export class CalendarView extends ItemView {
 				);
 			this.makeDraggable(row, ev.file);
 		}
-		row.createSpan({ cls: `companion-dot companion-dot-${ev.type}` });
+		row.createSpan({ cls: `companion-dot companion-dot-${visualType(ev)}` });
 
 		const txt = row.createDiv({ cls: "companion-item-txt" });
 		const title = txt.createDiv({ cls: "companion-item-title", text: ev.title });
@@ -949,7 +960,7 @@ export class CalendarView extends ItemView {
 			});
 		}
 
-		const subText = ev.status ? `${TYPE_LABELS[ev.type]} · ${ev.status}` : TYPE_LABELS[ev.type];
+		const subText = ev.status ? `${TYPE_LABELS[visualType(ev)]} · ${ev.status}` : TYPE_LABELS[visualType(ev)];
 		const repeatText = ev.virtualOf ? " · repeats" : ev.recur ? ` · ${recurLabel(ev.recur)}` : "";
 		const timeText = ev.time === "00:00" ? "" : ev.endTime ? ` · ${ev.time}–${ev.endTime}` : ` · ${ev.time}`;
 		txt.createDiv({

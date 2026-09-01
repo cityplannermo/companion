@@ -131,6 +131,10 @@
 .companion-pill-event {
 	background: var(--companion-color-event, #e2678a);
 }
+.companion-dot-subscription,
+.companion-pill-subscription {
+	background: var(--companion-color-subscription, #2fb6a3);
+}
 
 .companion-grid {
 	flex: 1;
@@ -845,6 +849,22 @@
 .companion-dashboard-root h2 {
 	margin: 0 0 12px 0;
 	font-size: 1.1em;
+}
+
+.companion-dashboard-daily-link {
+	margin-bottom: 12px;
+}
+
+/* The embedded ```companion-dashboard``` block in a Daily Note isn't its
+   own scrollable panel like the standalone tab -- just a bordered card
+   sitting inline in the note's own content flow. */
+.companion-dashboard-embed {
+	height: auto;
+	overflow: visible;
+	padding: 10px 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
 }
 
 .companion-dashboard-running {
