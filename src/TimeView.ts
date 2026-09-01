@@ -1,15 +1,16 @@
 import { ItemView, TFile, WorkspaceLeaf, setIcon, Notice } from "obsidian";
-import { TimeEntry, getTimeEntries, getRunningTimeEntry, startTimeEntry, stopTimeEntry } from "./data";
+import { TimeEntry, getClientRate, getTimeEntries, getRunningTimeEntry, startTimeEntry, stopTimeEntry } from "./data";
 import { addMonths, formatDate, formatElapsedMs, formatHours, formatTimeOfDay } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
 import { Selection } from "./selection";
 import { StartTimerModal } from "./timerUI";
+import { InvoiceGeneratorModal } from "./invoiceUI";
 import type { CompanionSettings } from "./settings";
 
 export const VIEW_TYPE_TIME = "companion-time-view";
 
-type Mode = "log" | "report";
+type Mode = "log" | "report" | "unbilled";
 
 /** A grouping of same-day entries that share a description and client --
  * Toggl calls these "tasks"; folding repeat sessions of the same work
@@ -135,8 +136,10 @@ export class TimeView extends ItemView {
 			if (this.running) this.renderRunningCard(root);
 			this.renderStats(root);
 			this.renderLog(root);
-		} else {
+		} else if (this.mode === "report") {
 			this.renderReport(root);
+		} else {
+			this.renderUnbilled(root);
 		}
 	}
 
@@ -149,8 +152,10 @@ export class TimeView extends ItemView {
 		const toggle = controls.createDiv({ cls: "companion-mode-toggle" });
 		const logBtn = toggle.createEl("button", { text: "Log" });
 		const reportBtn = toggle.createEl("button", { text: "Report" });
+		const unbilledBtn = toggle.createEl("button", { text: "Unbilled" });
 		logBtn.toggleClass("is-active", this.mode === "log");
 		reportBtn.toggleClass("is-active", this.mode === "report");
+		unbilledBtn.toggleClass("is-active", this.mode === "unbilled");
 		logBtn.onclick = () => {
 			this.mode = "log";
 			this.render();
@@ -158,6 +163,10 @@ export class TimeView extends ItemView {
 		reportBtn.onclick = () => {
 			this.mode = "report";
 			this.reportMonth = new Date();
+			this.render();
+		};
+		unbilledBtn.onclick = () => {
+			this.mode = "unbilled";
 			this.render();
 		};
 
@@ -278,6 +287,63 @@ export class TimeView extends ItemView {
 		}
 
 		this.renderEntryGroups(parent, monthEntries, "Nothing tracked this month.");
+	}
+
+	/** Everything currently tracked for a client is, by definition,
+	 * unbilled -- billed entries are deleted the moment an invoice note is
+	 * generated (see groupTimeEntriesForInvoice in data.ts), so whatever's
+	 * still here across every month is exactly what hasn't been invoiced
+	 * yet. Valued at the client's own `rate` where one's set, sorted
+	 * highest-value first so the answer to "who do I need to invoice" is
+	 * the first row. "Generate invoice" jumps straight into the same modal
+	 * the header's own button opens, pre-selected to that client. */
+	private renderUnbilled(parent: HTMLElement): void {
+		const byClient = new Map<string, number>();
+		for (const entry of this.past) {
+			if (!entry.client || entry.duration == null) continue;
+			byClient.set(entry.client, (byClient.get(entry.client) ?? 0) + entry.duration);
+		}
+
+		const rows = Array.from(byClient.entries())
+			.map(([client, hours]) => {
+				const rate = getClientRate(this.app, client);
+				return { client, hours, rate, value: rate != null ? hours * rate : -1 };
+			})
+			.sort((a, b) => b.value - a.value);
+
+		const totalValue = rows.reduce((sum, r) => sum + Math.max(0, r.value), 0);
+		parent.createDiv({
+			cls: "companion-time-report-summary",
+			text: rows.length > 0 ? `Unbilled total: £${totalValue.toFixed(2)} across ${rows.length} client${rows.length === 1 ? "" : "s"}` : "Nothing unbilled.",
+		});
+
+		if (rows.length === 0) return;
+
+		const table = parent.createDiv({ cls: "companion-time-client-table" });
+		for (const { client, hours, rate } of rows) {
+			const row = table.createDiv({ cls: "companion-time-client-row" });
+			row.createSpan({ cls: "companion-time-client-name", text: client });
+			row.createSpan({
+				cls: "companion-time-client-hours",
+				text: rate != null ? `${formatHours(hours)} · £${(hours * rate).toFixed(2)}` : `${formatHours(hours)} · no rate set`,
+			});
+			const invoiceBtn = row.createEl("button", { cls: "companion-btn-icon-text" });
+			setIcon(invoiceBtn, "receipt");
+			invoiceBtn.createSpan({ text: "Invoice" });
+			invoiceBtn.onclick = () => {
+				new InvoiceGeneratorModal(
+					this.app,
+					this.settings,
+					() => this.refresh(),
+					client
+				).open();
+			};
+		}
+
+		parent.createDiv({
+			cls: "companion-note",
+			text: "Every currently tracked entry is unbilled by definition -- generating an invoice is what removes it from here.",
+		});
 	}
 
 	/** Shared by Log and Report: day-grouped, then task-grouped (same

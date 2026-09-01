@@ -241,6 +241,19 @@ export class CalendarView extends ItemView {
 		const next = nav.createEl("button", { attr: { "aria-label": "Next" } });
 		setIcon(next, "chevron-right");
 
+		// A native date input rather than a custom picker -- Chromium's own
+		// calendar popup, no extra UI to build or maintain, and it already
+		// matches the OS/locale date format.
+		const jumpInput = nav.createEl("input", { cls: "companion-jump-date", attr: { type: "date", "aria-label": "Jump to date" } });
+		jumpInput.value = formatDate(this.cursor);
+		jumpInput.onchange = () => {
+			if (!jumpInput.value) return;
+			const d = parseDate(jumpInput.value);
+			this.cursor = d;
+			if (this.mode === "day") this.selected = formatDate(d);
+			this.render();
+		};
+
 		const modeSelect = nav.createEl("select", { cls: "companion-mode-select" });
 		for (const m of ["month", "week", "day"] as const) {
 			const opt = modeSelect.createEl("option", { text: m.charAt(0).toUpperCase() + m.slice(1), value: m });

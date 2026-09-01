@@ -31,6 +31,13 @@ export function startOfWeek(d: Date, weekStartsOn: "monday" | "sunday"): Date {
 	return addDays(d, diff);
 }
 
+/** "4 Sep" -- short display form for a list row's date column, shared by
+ * every list-style view (Reminders, Finance, ...). */
+export function formatDisplayShortDate(dateStr: string): string {
+	const [y, m, d] = dateStr.split("-").map(Number);
+	return new Date(y, m - 1, d).toLocaleDateString("default", { day: "numeric", month: "short" });
+}
+
 export function truncate(s: string, max: number): string {
 	return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }

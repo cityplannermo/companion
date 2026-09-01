@@ -1,5 +1,7 @@
 import { Notice, Plugin, WorkspaceLeaf } from "obsidian";
 import { CalendarView, VIEW_TYPE_CALENDAR } from "./CalendarView";
+import { DashboardView, VIEW_TYPE_DASHBOARD } from "./DashboardView";
+import { FinanceView, VIEW_TYPE_FINANCE } from "./FinanceView";
 import { RemindersView, VIEW_TYPE_REMINDERS } from "./RemindersView";
 import { TaskBoardView, VIEW_TYPE_TASKS } from "./TaskBoardView";
 import { TimeView, VIEW_TYPE_TIME } from "./TimeView";
@@ -36,7 +38,29 @@ export default class CompanionPlugin extends Plugin {
 		this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this.settings, () => this.saveSettings()));
 		this.registerView(VIEW_TYPE_TASKS, (leaf) => new TaskBoardView(leaf, this.settings));
 		this.registerView(VIEW_TYPE_REMINDERS, (leaf) => new RemindersView(leaf, this.settings));
+		this.registerView(VIEW_TYPE_FINANCE, (leaf) => new FinanceView(leaf, this.settings));
+		this.registerView(VIEW_TYPE_DASHBOARD, (leaf) => new DashboardView(leaf, this.settings));
 		this.registerView(VIEW_TYPE_TIME, (leaf) => new TimeView(leaf, this.settings));
+
+		// A `banner:` frontmatter property (a vault-relative image path, or a
+		// raw URL) shows that image across the top of the note in Reading
+		// view -- built natively rather than installing the third-party
+		// Banners plugin, per the 1 September evaluation in Companion.md.
+		// Reading view only, deliberately -- a Live Preview / Edit-mode
+		// banner needs a CodeMirror extension, real scope creep for what's
+		// meant to be a small addition.
+		this.registerMarkdownPostProcessor((el, ctx) => {
+			const banner = ctx.frontmatter?.banner;
+			if (!banner || typeof banner !== "string") return;
+			const container = el.parentElement;
+			if (!container || container.firstElementChild !== el) return; // only the first block of the render pass
+			const file = this.app.metadataCache.getFirstLinkpathDest(banner, ctx.sourcePath);
+			const src = file ? this.app.vault.getResourcePath(file) : banner;
+			const img = document.createElement("img");
+			img.className = "companion-banner";
+			img.src = src;
+			container.insertBefore(img, el);
+		});
 
 		// Lets Ctrl/Cmd+hover on a Companion item trigger Obsidian's own
 		// Page preview popup — see openHandlers.ts.
@@ -45,6 +69,9 @@ export default class CompanionPlugin extends Plugin {
 			defaultMod: true,
 		});
 
+		this.addRibbonIcon("layout-dashboard", "Open dashboard", () => {
+			void this.activateView(VIEW_TYPE_DASHBOARD);
+		});
 		this.addRibbonIcon("compass", "Open calendar", () => {
 			void this.activateView(VIEW_TYPE_CALENDAR);
 		});
@@ -54,10 +81,20 @@ export default class CompanionPlugin extends Plugin {
 		this.addRibbonIcon("bell", "Open reminders", () => {
 			void this.activateView(VIEW_TYPE_REMINDERS);
 		});
+		this.addRibbonIcon("wallet", "Open finance", () => {
+			void this.activateView(VIEW_TYPE_FINANCE);
+		});
 		this.addRibbonIcon("timer", "Open time tracker", () => {
 			void this.activateView(VIEW_TYPE_TIME);
 		});
 
+		this.addCommand({
+			id: "open-companion-dashboard",
+			name: "Open dashboard",
+			callback: () => {
+				void this.activateView(VIEW_TYPE_DASHBOARD);
+			},
+		});
 		this.addCommand({
 			id: "open-companion-calendar",
 			name: "Open calendar",
@@ -77,6 +114,13 @@ export default class CompanionPlugin extends Plugin {
 			name: "Open reminders",
 			callback: () => {
 				void this.activateView(VIEW_TYPE_REMINDERS);
+			},
+		});
+		this.addCommand({
+			id: "open-companion-finance",
+			name: "Open finance",
+			callback: () => {
+				void this.activateView(VIEW_TYPE_FINANCE);
 			},
 		});
 		this.addCommand({
@@ -239,6 +283,12 @@ export default class CompanionPlugin extends Plugin {
 		}
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_REMINDERS)) {
 			if (leaf.view instanceof RemindersView) leaf.view.refresh();
+		}
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_FINANCE)) {
+			if (leaf.view instanceof FinanceView) leaf.view.refresh();
+		}
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DASHBOARD)) {
+			if (leaf.view instanceof DashboardView) leaf.view.refresh();
 		}
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TIME)) {
 			if (leaf.view instanceof TimeView) leaf.view.refresh();

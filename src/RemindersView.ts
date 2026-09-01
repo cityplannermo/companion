@@ -1,8 +1,7 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
-import { advanceRecurringReminder, applyEventEdit, CompanionReminder, createQuickNote, getReminders, monthlyEquivalentCost } from "./data";
-import type { RecurKind } from "./data";
+import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { applyEventEdit, CompanionReminder, createQuickNote, getReminders, snoozeReminder } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
-import { formatDate } from "./dates";
+import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
 import { Selection } from "./selection";
@@ -201,25 +200,21 @@ export class RemindersView extends ItemView {
 		const list = parent.createDiv({ cls: "companion-reminders-list" });
 		const todayStr = formatDate(new Date());
 
-		// A subscription is a reminder with both a repeat rule and a cost --
-		// not a separate note type, just those two fields together (see
-		// CompanionReminder in data.ts). Shown as its own section, above
-		// everything else, so it isn't mixed in with plain due-date reminders.
-		const visible = this.visibleReminders();
+		// Subscriptions (a reminder with both a repeat rule and a cost) live
+		// in the Finance tab now, not here -- see FinanceView.ts. Filtered
+		// out so a subscription doesn't show up in two places at once.
 		const isSubscription = (r: CompanionReminder) => !!r.recur && r.cost != null;
-		const subscriptions = visible.filter(isSubscription).sort(this.sortComparator());
-		const plain = visible.filter((r) => !isSubscription(r));
+		const visible = this.visibleReminders().filter((r) => !isSubscription(r));
 
 		// Matches due_reminders.py exactly: due is date <= today. Undated
 		// reminders surface in their own group rather than being hidden --
 		// they're real reminders, just ones the script itself would never
 		// resurface until a date is added.
 		const sortFn = this.sortComparator();
-		const due = plain.filter((r) => r.date && r.date <= todayStr).sort(sortFn);
-		const upcoming = plain.filter((r) => r.date && r.date > todayStr).sort(sortFn);
-		const undated = plain.filter((r) => !r.date).sort(this.sortDir === "desc" ? (a, b) => byTitle(b, a) : byTitle);
+		const due = visible.filter((r) => r.date && r.date <= todayStr).sort(sortFn);
+		const upcoming = visible.filter((r) => r.date && r.date > todayStr).sort(sortFn);
+		const undated = visible.filter((r) => !r.date).sort(this.sortDir === "desc" ? (a, b) => byTitle(b, a) : byTitle);
 
-		this.renderSubscriptions(list, subscriptions, todayStr);
 		this.renderGroup(list, "Due", due, todayStr);
 		this.renderGroup(list, "Upcoming", upcoming, todayStr);
 		this.renderGroup(list, "No date", undated, todayStr);
@@ -234,9 +229,9 @@ export class RemindersView extends ItemView {
 			cls: "companion-note",
 			text:
 				"Due matches what due_reminders.py surfaces — date today or earlier. A reminder with both a repeat " +
-				"rule and a cost shows as a subscription above, with a Renew button that pushes its due date forward " +
-				"one period in place. Right-click (or press and hold on mobile) for Edit/Select/Delete; Shift+click " +
-				"also selects on desktop. Once selecting, tap or click other items to add them, then Clear to finish.",
+				"rule and a cost is a subscription and lives in the Finance tab instead of here. Right-click (or " +
+				"press and hold on mobile) for Edit/Select/Delete; Shift+click also selects on desktop. Once " +
+				"selecting, tap or click other items to add them, then Clear to finish.",
 		});
 	}
 
@@ -270,7 +265,7 @@ export class RemindersView extends ItemView {
 
 			row.createDiv({
 				cls: "companion-list-row-date",
-				text: reminder.date ? formatDisplayDate(reminder.date) : "No date",
+				text: reminder.date ? formatDisplayShortDate(reminder.date) : "No date",
 			});
 			if (reminder.date && reminder.date < todayStr) {
 				row.addClass("companion-reminder-overdue");
@@ -283,74 +278,40 @@ export class RemindersView extends ItemView {
 				},
 				isSelecting: () => this.selection.size > 0,
 			});
+
+			if (reminder.date) {
+				const snooze = row.createSpan({ cls: "companion-item-rename-btn", attr: { "aria-label": "Snooze" } });
+				setIcon(snooze, "alarm-clock");
+				snooze.onclick = (e) => {
+					e.stopPropagation();
+					this.showSnoozeMenu(e, reminder);
+				};
+			}
 		}
 	}
 
-	/** Subscriptions -- reminders with both a repeat rule and a cost -- get
-	 * their own section above everything else: a running monthly-equivalent
-	 * total in the section header, and a Renew action per row that rolls
-	 * the reminder's own due date forward one period in place (see
-	 * advanceRecurringReminder in data.ts) rather than creating any new
-	 * note. Edit/Select/Delete work the same as any other reminder row. */
-	private renderSubscriptions(parent: HTMLElement, items: CompanionReminder[], todayStr: string): void {
-		if (items.length === 0) return;
-
-		const total = items.reduce((sum, r) => sum + monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind), 0);
-		const groupTitle = parent.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Subscriptions (${items.length}) — £${total.toFixed(2)}/month` });
-
-		for (const sub of items) {
-			const row = parent.createDiv({ cls: "companion-list-row" });
-			row.toggleClass("is-selected", this.selection.has(sub.file.path));
-			row.oncontextmenu = (e) =>
-				showDeleteMenu(
-					this.app,
-					e,
-					sub.file,
-					this.selectedFiles(),
-					this.settings.confirmBeforeDelete,
-					() => this.afterDelete(),
-					() => this.openEditor(sub),
-					() => {
-						this.selection.toggle(sub.file.path);
-						this.render();
-					},
-					() => {
-						this.selection.clear();
-						this.render();
-					}
-				);
-
-			row.createDiv({
-				cls: "companion-list-row-date",
-				text: sub.date ? formatDisplayDate(sub.date) : "No date",
-			});
-			if (sub.date && sub.date < todayStr) row.addClass("companion-reminder-overdue");
-
-			const title = row.createDiv({ cls: "companion-list-row-title", text: sub.title });
-			makeOpenable(this.app, title, sub.file, {
-				onToggleSelect: () => {
-					this.selection.toggle(sub.file.path);
-					this.render();
-				},
-				isSelecting: () => this.selection.size > 0,
-			});
-
-			row.createDiv({
-				cls: "companion-subscription-cost",
-				text: `£${(sub.cost ?? 0).toFixed(2)}/${periodSuffix(sub.recur as RecurKind)}`,
-			});
-
-			const renew = row.createSpan({ cls: "companion-item-rename-btn", attr: { "aria-label": "Renew -- push the due date forward one period" } });
-			setIcon(renew, "rotate-cw");
-			renew.onclick = (e) => {
-				e.stopPropagation();
-				advanceRecurringReminder(this.app, sub.file).then(
-					() => this.refresh(),
-					(err: Error) => new Notice(err.message)
-				);
-			};
+	/** A small menu of fixed snooze amounts rather than a free-text time
+	 * picker -- matches the lightweight, no-modal interaction the rest of
+	 * this view uses (Renew, Edit/Select/Delete). */
+	private showSnoozeMenu(event: MouseEvent, reminder: CompanionReminder): void {
+		const menu = new Menu();
+		const options: [string, number][] = [
+			["1 hour", 60],
+			["3 hours", 3 * 60],
+			["Tomorrow", 24 * 60],
+			["1 week", 7 * 24 * 60],
+		];
+		for (const [label, minutes] of options) {
+			menu.addItem((item) =>
+				item.setTitle(label).setIcon("alarm-clock").onClick(() => {
+					snoozeReminder(this.app, reminder.file, minutes).then(
+						() => this.refresh(),
+						(err: Error) => new Notice(err.message)
+					);
+				})
+			);
 		}
+		menu.showAtMouseEvent(event);
 	}
 
 	/** Opens the shared editor modal (title, time, repeat, and -- since
@@ -381,22 +342,10 @@ export class RemindersView extends ItemView {
 	}
 }
 
-function periodSuffix(kind: RecurKind): string {
-	if (kind === "daily") return "day";
-	if (kind === "weekly") return "week";
-	if (kind === "monthly") return "mo";
-	return "yr";
-}
-
 function byDate(a: CompanionReminder, b: CompanionReminder): number {
 	return (a.date ?? "").localeCompare(b.date ?? "");
 }
 
 function byTitle(a: CompanionReminder, b: CompanionReminder): number {
 	return a.title.localeCompare(b.title);
-}
-
-function formatDisplayDate(dateStr: string): string {
-	const [y, m, d] = dateStr.split("-").map(Number);
-	return new Date(y, m - 1, d).toLocaleDateString("default", { day: "numeric", month: "short" });
 }

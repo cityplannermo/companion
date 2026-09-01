@@ -407,10 +407,62 @@
 	text-decoration: underline;
 }
 
+.companion-card-meta {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 3px;
+}
+
 .companion-card-date {
 	font-size: 0.72em;
 	color: var(--text-muted);
-	margin-top: 3px;
+}
+
+.companion-card-meta .companion-card-date {
+	margin-top: 0;
+	margin-right: auto;
+}
+
+.companion-task-checklist {
+	font-size: 0.72em;
+	color: var(--text-muted);
+	background: var(--background-primary);
+	border-radius: 4px;
+	padding: 1px 5px;
+}
+
+.companion-task-priority {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	cursor: pointer;
+	border: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.companion-task-priority.is-none {
+	background: transparent;
+}
+
+.companion-task-priority.is-low {
+	background: var(--color-blue, #6a9fd8);
+	border-color: transparent;
+}
+
+.companion-task-priority.is-medium {
+	background: var(--color-orange, #e0a03c);
+	border-color: transparent;
+}
+
+.companion-task-priority.is-high {
+	background: var(--color-red, #d8544f);
+	border-color: transparent;
+}
+
+.companion-list-row .companion-task-checklist,
+.companion-list-row .companion-task-priority {
+	margin-left: 6px;
 }
 
 .companion-card-controls {
@@ -775,6 +827,88 @@
 	color: var(--text-error, #c8524f);
 }
 
+.companion-banner {
+	display: block;
+	width: 100%;
+	max-height: 280px;
+	object-fit: cover;
+	border-radius: 6px;
+	margin-bottom: 16px;
+}
+
+.companion-dashboard-root {
+	height: 100%;
+	overflow: auto;
+	padding: 12px 16px;
+}
+
+.companion-dashboard-root h2 {
+	margin: 0 0 12px 0;
+	font-size: 1.1em;
+}
+
+.companion-dashboard-running {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	background: var(--background-secondary);
+	border: 1px solid var(--interactive-accent);
+	border-radius: 6px;
+	padding: 10px 12px;
+	margin-bottom: 16px;
+}
+
+.companion-dashboard-section {
+	margin-bottom: 18px;
+}
+
+.companion-dashboard-section h3 {
+	margin: 0 0 6px 0;
+	font-size: 0.95em;
+	color: var(--text-muted);
+}
+
+.companion-dashboard-client {
+	color: var(--text-muted);
+	font-size: 0.9em;
+}
+
+.companion-dashboard-type {
+	font-size: 0.72em;
+	color: var(--text-muted);
+	background: var(--background-primary);
+	border-radius: 4px;
+	padding: 1px 6px;
+	margin-left: 8px;
+	flex-shrink: 0;
+}
+
+.companion-finance-root {
+	height: 100%;
+	overflow: auto;
+	padding: 12px 16px;
+}
+
+.companion-finance-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	row-gap: 6px;
+	margin-bottom: 10px;
+}
+
+.companion-finance-header h2 {
+	margin: 0;
+	font-size: 1.1em;
+}
+
+.companion-finance-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
 .companion-task-overdue {
 	color: var(--text-error, #c8524f);
 }
@@ -1033,8 +1167,15 @@
 
 .companion-time-client-row {
 	display: flex;
+	align-items: center;
 	justify-content: space-between;
+	gap: 8px;
 	font-size: 0.82em;
+}
+
+.companion-time-client-row .companion-btn-icon-text {
+	font-size: 0.85em;
+	padding: 2px 8px;
 }
 
 .companion-time-client-name {
@@ -1121,6 +1262,15 @@
 	}
 }
 
+
+.companion-jump-date {
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	color: var(--text-normal);
+	border-radius: 5px;
+	padding: 3px 6px;
+	font-size: 0.85em;
+}
 
 /* Calendar mode switcher (Month/Week/Day) */
 

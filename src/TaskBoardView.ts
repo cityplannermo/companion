@@ -1,5 +1,5 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
-import { CompanionTask, TASK_STATUSES, TaskStatus, createQuickNote, getTasks, setTaskStatus } from "./data";
+import { CompanionTask, TASK_STATUSES, TaskStatus, TaskPriority, createQuickNote, getTasks, setTaskPriority, setTaskStatus } from "./data";
 import { formatDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
@@ -305,11 +305,13 @@ export class TaskBoardView extends ItemView {
 			isSelecting: () => this.selection.size > 0,
 		});
 
-		const dateEl = card.createDiv({
+		const meta = card.createDiv({ cls: "companion-card-meta" });
+		const dateEl = meta.createDiv({
 			cls: "companion-card-date",
 			text: task.date ? formatDisplayDate(task.date) : "No date",
 		});
 		if (isOverdue(task)) dateEl.addClass("companion-task-overdue");
+		this.renderBadges(meta, task);
 
 		this.renderMoveControls(card, task, "companion-card-controls");
 	}
@@ -374,6 +376,7 @@ export class TaskBoardView extends ItemView {
 					},
 					isSelecting: () => this.selection.size > 0,
 				});
+				this.renderBadges(row, task);
 				this.renderMoveControls(row, task, "companion-list-row-controls");
 			}
 		}
@@ -382,6 +385,37 @@ export class TaskBoardView extends ItemView {
 			cls: "companion-note",
 			text: "Moving a task with ‹ › updates its status field only. Right-click (or press and hold on mobile) for Select/Delete; Shift+click also selects on desktop. Once selecting, tap or click other items to add them, then Clear to finish.",
 		});
+	}
+
+	/** A checklist-progress badge (read-only, counted from the note's own
+	 * markdown checkboxes -- see countChecklist in data.ts) when the note
+	 * has any, plus a priority dot that cycles None -> Low -> Medium -> High
+	 * -> None on click, the same lightweight "click to change" interaction
+	 * the move controls already use rather than a full edit form. */
+	private renderBadges(parent: HTMLElement, task: CompanionTask): void {
+		if (task.checklistTotal > 0) {
+			parent.createDiv({
+				cls: "companion-task-checklist",
+				text: `${task.checklistDone}/${task.checklistTotal}`,
+				attr: { "aria-label": "Checklist progress" },
+			});
+		}
+
+		const priorityBtn = parent.createDiv({
+			cls: `companion-task-priority is-${task.priority ?? "none"}`,
+			attr: { "aria-label": task.priority ? `Priority: ${task.priority} — click to change` : "No priority — click to set" },
+		});
+		priorityBtn.onclick = (e) => {
+			e.stopPropagation();
+			void this.cyclePriority(task);
+		};
+	}
+
+	private async cyclePriority(task: CompanionTask): Promise<void> {
+		const order: (TaskPriority | null)[] = [null, "low", "medium", "high"];
+		const next = order[(order.indexOf(task.priority) + 1) % order.length];
+		await setTaskPriority(this.app, task.file, next);
+		this.refresh();
 	}
 
 	private renderMoveControls(parent: HTMLElement, task: CompanionTask, cls: string): void {

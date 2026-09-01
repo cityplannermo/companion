@@ -52,9 +52,15 @@ export class InvoiceGeneratorModal extends Modal {
 	constructor(
 		app: App,
 		private settings: CompanionSettings,
-		private onDone: (file: TFile) => void
+		private onDone: (file: TFile) => void,
+		initialClient?: string
 	) {
 		super(app);
+		// Lets a caller that already knows the client (the Time view's
+		// Unbilled report, in particular) land straight on it pre-selected
+		// -- renderRecipientStep's own syncMode() picks up rate/billing/last
+		// invoice from here exactly as if it had been chosen by hand.
+		if (initialClient) this.client = initialClient;
 	}
 
 	onOpen(): void {

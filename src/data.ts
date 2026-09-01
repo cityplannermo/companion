@@ -188,17 +188,38 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 export const TASK_STATUSES = ["To Do", "Doing", "Done"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+export const TASK_PRIORITIES = ["low", "medium", "high"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
 export interface CompanionTask {
 	file: TFile;
 	title: string;
 	date: string | null; // null when missing or unparseable — still shown, just sorts last
 	status: TaskStatus;
+	priority: TaskPriority | null; // null = no priority set, not a fourth level
+	checklistDone: number; // markdown checkbox items in the note's own body, checked
+	checklistTotal: number; // same, total -- 0 means the note has no checklist at all
 }
 
 function toTaskStatus(value: unknown): TaskStatus {
 	return (TASK_STATUSES as readonly string[]).includes(value as string)
 		? (value as TaskStatus)
 		: "To Do"; // a task note with a missing or unrecognised status still needs a column
+}
+
+function toTaskPriority(value: unknown): TaskPriority | null {
+	return (TASK_PRIORITIES as readonly string[]).includes(value as string) ? (value as TaskPriority) : null;
+}
+
+/** Sub-items are ordinary markdown checkboxes in the task note's own body
+ * -- no new format, matching the wiki's own convention. Counted straight
+ * from Obsidian's metadata cache (listItems' `task` field) rather than
+ * reading the file body, since the cache already tracks exactly this. */
+function countChecklist(listItems: { task?: string }[] | undefined): { done: number; total: number } {
+	if (!listItems) return { done: 0, total: 0 };
+	const boxes = listItems.filter((i) => i.task !== undefined);
+	const done = boxes.filter((i) => i.task !== " ").length;
+	return { done, total: boxes.length };
 }
 
 /** Every note tagged `task`, regardless of date — the board needs undated tasks too. */
@@ -211,11 +232,15 @@ export function getTasks(app: App): CompanionTask[] {
 		if (!frontmatter) continue;
 		if (!getTags(frontmatter).includes("task")) continue;
 
+		const { done, total } = countChecklist(cache?.listItems);
 		tasks.push({
 			file,
 			title: file.basename,
 			date: normaliseDate(frontmatter["date"]),
 			status: toTaskStatus(frontmatter["status"]),
+			priority: toTaskPriority(frontmatter["priority"]),
+			checklistDone: done,
+			checklistTotal: total,
 		});
 	}
 
@@ -232,6 +257,15 @@ export function getTasks(app: App): CompanionTask[] {
 export async function setTaskStatus(app: App, file: TFile, status: TaskStatus): Promise<void> {
 	await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
 		fm["status"] = status;
+	});
+}
+
+/** Sets or clears a task's priority field -- null removes it from
+ * frontmatter entirely rather than writing an empty/placeholder value. */
+export async function setTaskPriority(app: App, file: TFile, priority: TaskPriority | null): Promise<void> {
+	await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+		if (priority) fm["priority"] = priority;
+		else delete fm["priority"];
 	});
 }
 
@@ -796,6 +830,30 @@ export async function advanceRecurringReminder(app: App, file: TFile): Promise<v
 
 	await app.fileManager.processFrontMatter(file, (rfm: Record<string, unknown>) => {
 		rfm["date"] = `${formatDateStr(next)}T${time}`;
+	});
+}
+
+/** Pushes a reminder's own due date+time forward by a fixed number of
+ * minutes -- "Snooze" in the Reminders view, for a plain one-off reminder
+ * rather than the repeat-driven Renew a subscription gets. Same
+ * single-field rewrite pattern as advanceRecurringReminder: no new note,
+ * the reminder just becomes due later. */
+export async function snoozeReminder(app: App, file: TFile, minutes: number): Promise<void> {
+	const cache = app.metadataCache.getFileCache(file);
+	const fm = cache?.frontmatter;
+	const dateStr = normaliseDate(fm?.["date"]);
+	if (!dateStr) throw new Error("This reminder has no date to snooze from.");
+	const time = timeOfDay(fm?.["date"]);
+	const current = new Date(`${dateStr}T${time}`);
+	current.setMinutes(current.getMinutes() + minutes);
+	const y = current.getFullYear();
+	const m = String(current.getMonth() + 1).padStart(2, "0");
+	const d = String(current.getDate()).padStart(2, "0");
+	const h = String(current.getHours()).padStart(2, "0");
+	const min = String(current.getMinutes()).padStart(2, "0");
+
+	await app.fileManager.processFrontMatter(file, (rfm: Record<string, unknown>) => {
+		rfm["date"] = `${y}-${m}-${d}T${h}:${min}`;
 	});
 }
 
