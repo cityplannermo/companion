@@ -1,0 +1,9 @@
+{
+	"id": "wiki-companion",
+	"name": "Wiki Companion",
+	"version": "1.20.0",
+	"minAppVersion": "1.7.2",
+	"description": "A calendar, task board, reminders list and time tracker over tagged notes -- Month/Week/Day views with drag-to-reschedule/resize, an editable agenda and notifications; delete to trash; edits write back only the field you changed.",
+	"author": "Mo",
+	"isDesktopOnly": false
+}
