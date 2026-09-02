@@ -1,10 +1,10 @@
 import { ItemView, TFile, WorkspaceLeaf, setIcon, Notice } from "obsidian";
-import { TimeEntry, getClientRate, getTimeEntries, getRunningTimeEntry, startTimeEntry, stopTimeEntry } from "./data";
+import { TimeEntry, createManualTimeEntry, getClientRate, getTimeEntries, getRunningTimeEntry, startTimeEntry, stopTimeEntry } from "./data";
 import { addMonths, formatDate, formatElapsedMs, formatHours, formatTimeOfDay } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
 import { Selection } from "./selection";
-import { StartTimerModal } from "./timerUI";
+import { ManualTimeEntryModal, StartTimerModal } from "./timerUI";
 import { InvoiceGeneratorModal } from "./invoiceUI";
 import type { CompanionSettings } from "./settings";
 
@@ -100,6 +100,19 @@ export class TimeView extends ItemView {
 		}).open();
 	}
 
+	/** Opens the manual-entry modal for a session that was forgotten at the
+	 * time -- same dialog and write path as the dashboard's own list-plus
+	 * button (see ManualTimeEntryModal / createManualTimeEntry), offered
+	 * here too since the Time tab is where Mo actually reviews his log. */
+	private openManualEntry(): void {
+		new ManualTimeEntryModal(this.app, (description, client, dateStr, startTimeStr, endTimeStr) => {
+			createManualTimeEntry(this.app, description, client, dateStr, startTimeStr, endTimeStr, Number(this.settings.roundingMinutes)).then(
+				() => this.refresh(),
+				(err: Error) => new Notice(err.message)
+			);
+		}).open();
+	}
+
 	private async stopRunning(): Promise<void> {
 		if (!this.running) return;
 		await stopTimeEntry(this.app, this.running.file, Number(this.settings.roundingMinutes));
@@ -169,6 +182,12 @@ export class TimeView extends ItemView {
 			this.mode = "unbilled";
 			this.render();
 		};
+
+		const manualBtn = controls.createEl("button", { cls: "companion-btn-icon-text" });
+		setIcon(manualBtn, "list-plus");
+		manualBtn.createSpan({ text: "Add entry" });
+		manualBtn.setAttribute("aria-label", "Log a time entry you forgot to track");
+		manualBtn.onclick = () => this.openManualEntry();
 
 		const btn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
 		if (this.running) {

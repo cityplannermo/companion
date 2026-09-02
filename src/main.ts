@@ -195,25 +195,33 @@ export default class CompanionPlugin extends Plugin {
 		this.updateTimerStatus();
 		this.registerInterval(window.setInterval(() => this.updateTimerStatus(), 1000));
 
-		// Desktop notifications for a timed Reminder/Task/Event/Meeting's start
-		// -- off by default (dueNotifications setting). 30s cadence is frequent
+		// Desktop notifications: a timed Reminder/Task/Event/Meeting's exact
+		// start (dueNotifications setting, off by default) and each item's
+		// own advance "Remind" field (always active -- it's opted into per
+		// item, not gated by a blanket setting). 30s cadence is frequent
 		// enough that nothing due on the minute is missed by more than half a
 		// minute, without re-reading the vault so often it's wasteful.
-		this.registerInterval(window.setInterval(() => this.checkDueNotifications(), 30_000));
+		this.registerInterval(window.setInterval(() => this.checkNotifications(), 30_000));
 	}
 
-	/** Fires a desktop notification for anything timed that started since the
-	 * last check, plus (if any of the "Remind N before" settings are on)
-	 * advance notice for items dated exactly that far ahead. Guarded on both
-	 * sides: `dueNotifications` off, or no `Notification` API (mobile, where
-	 * isDesktopOnly is false but this API doesn't exist) skip entirely; a
-	 * stale `lastNotifyCheckMs` (plugin just loaded, or the setting was just
-	 * switched on after being off a while) is capped to 5 minutes so it
-	 * can't fire a whole day's backlog at once. */
-	private checkDueNotifications(): void {
-		if (!this.settings.dueNotifications) return;
+	/** Tick handler for both notification mechanisms. The exact-start check
+	 * is gated by `dueNotifications` (off by default); the per-item
+	 * "Remind" check always runs -- each item opts in individually via its
+	 * own `remind` field, so there's no separate blanket setting left to
+	 * gate it on (see checkLeadNotifications). Both need the `Notification`
+	 * API, absent on mobile. */
+	private checkNotifications(): void {
 		if (typeof Notification === "undefined") return;
 
+		if (this.settings.dueNotifications) this.checkExactStartNotifications();
+		this.checkLeadNotifications(formatDate(new Date()));
+	}
+
+	/** Fires a desktop notification for anything timed that started since
+	 * the last check. A stale `lastNotifyCheckMs` (plugin just loaded, or
+	 * the setting was just switched on after being off a while) is capped
+	 * to 5 minutes so it can't fire a whole day's backlog at once. */
+	private checkExactStartNotifications(): void {
 		const now = Date.now();
 		const windowStart = this.lastNotifyCheckMs;
 		this.lastNotifyCheckMs = now;
@@ -237,18 +245,19 @@ export default class CompanionPlugin extends Plugin {
 				new Notification(`${label}: ${ev.title}`, { body: `Starting now (${ev.time})` });
 			}
 		}
-
-		this.checkLeadNotifications(todayStr);
 	}
 
-	/** Advance notice for items dated 1 day/1 week/1 month ahead -- per
-	 * whichever an individual item's own `remind` field asks for (set via
-	 * the shared editor's "Remind" dropdown, alongside Repeat), not a
-	 * blanket setting applied to everything. Unlike the exact-start check
-	 * above, this covers all-day items too (a subscription renewal
-	 * reminder is rarely given a specific time), so it can't key off a
-	 * clock moment -- instead each item notifies at most once per lead per
-	 * day, tracked in leadNotifiedToday and reset when the date rolls over. */
+	/** Advance notice for items dated on the day itself (9am) or 1 day/1
+	 * week/1 month ahead -- per whichever an individual item's own `remind`
+	 * field asks for (set via the shared editor's "Remind" dropdown,
+	 * alongside Repeat), not a blanket setting applied to everything.
+	 * Unlike the exact-start check above, this covers all-day items too (a
+	 * subscription renewal reminder is rarely given a specific time), so it
+	 * can't key off a clock moment for most leads -- instead each item
+	 * notifies at most once per lead per day, tracked in leadNotifiedToday
+	 * and reset when the date rolls over. The "9am" lead is the one
+	 * exception with a real clock moment: it's simply held back until the
+	 * local hour reaches 9, then fires (and dedupes) the same way. */
 	private checkLeadNotifications(todayStr: string): void {
 		if (todayStr !== this.leadNotifiedDateStr) {
 			this.leadNotifiedDateStr = todayStr;
@@ -256,6 +265,7 @@ export default class CompanionPlugin extends Plugin {
 		}
 
 		const leads: { key: RemindLead; days: number; label: string }[] = [
+			{ key: "9am", days: 0, label: "Today" },
 			{ key: "1d", days: 1, label: "Tomorrow" },
 			{ key: "1w", days: 7, label: "In 1 week" },
 			{ key: "1m", days: 30, label: "In 1 month" },
@@ -263,6 +273,8 @@ export default class CompanionPlugin extends Plugin {
 
 		const index = buildIndex(this.app);
 		for (const lead of leads) {
+			if (lead.key === "9am" && new Date().getHours() < 9) continue; // not 9am yet -- try again next tick
+
 			const targetDateStr = formatDate(addDays(new Date(), lead.days));
 			const items = [
 				...(index.get(targetDateStr) ?? []),

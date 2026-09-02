@@ -310,7 +310,7 @@ export class CalendarView extends ItemView {
 			};
 		}
 
-		const addBtn = nav.createEl("button", { cls: "companion-icon-btn companion-icon-btn-accent", attr: { "aria-label": "New item" } });
+		const addBtn = nav.createEl("button", { cls: "companion-icon-btn companion-icon-btn-accent mod-cta", attr: { "aria-label": "New item" } });
 		setIcon(addBtn, "plus");
 		addBtn.onclick = () => this.openCreateAt(this.selected, null);
 

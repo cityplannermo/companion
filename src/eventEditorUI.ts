@@ -13,6 +13,7 @@ const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
 
 const REMIND_OPTIONS: { value: RemindLead | ""; label: string }[] = [
 	{ value: "", label: "None" },
+	{ value: "9am", label: remindLeadLabel("9am") },
 	{ value: "1d", label: remindLeadLabel("1d") },
 	{ value: "1w", label: remindLeadLabel("1w") },
 	{ value: "1m", label: remindLeadLabel("1m") },

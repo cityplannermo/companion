@@ -157,15 +157,16 @@ export function recurLabel(kind: RecurKind): string {
 // notification (timed items only), this fires ahead of the item's own
 // date regardless of whether it has a specific time set -- see
 // checkLeadNotifications() in main.ts.
-export type RemindLead = "1d" | "1w" | "1m";
+export type RemindLead = "9am" | "1d" | "1w" | "1m";
 
 export function parseRemindLead(value: unknown): RemindLead | null {
 	if (typeof value !== "string") return null;
 	const raw = value.trim().toLowerCase();
-	return raw === "1d" || raw === "1w" || raw === "1m" ? raw : null;
+	return raw === "9am" || raw === "1d" || raw === "1w" || raw === "1m" ? raw : null;
 }
 
 export function remindLeadLabel(lead: RemindLead): string {
+	if (lead === "9am") return "On the day, 9am";
 	if (lead === "1d") return "1 day before";
 	if (lead === "1w") return "1 week before";
 	return "1 month before";

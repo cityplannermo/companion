@@ -248,7 +248,7 @@ export class DashboardEmbed extends MarkdownRenderChild {
 		const header = section.createDiv({ cls: "companion-dashboard-timer-header" });
 		header.createEl("h3", { text: "Time tracker" });
 		const addBtn = header.createEl("button", {
-			cls: "companion-icon-btn companion-icon-btn-accent",
+			cls: "companion-icon-btn companion-icon-btn-accent mod-cta",
 			attr: { "aria-label": "New item" },
 		});
 		setIcon(addBtn, "plus");
@@ -314,14 +314,14 @@ export class DashboardEmbed extends MarkdownRenderChild {
 		for (const name of getClientNames(this.app)) clientSelect.createEl("option", { text: name, value: name });
 
 		const addManual = row.createEl("button", {
-			cls: "companion-icon-btn companion-icon-btn-accent",
+			cls: "companion-icon-btn companion-icon-btn-accent mod-cta",
 			attr: { "aria-label": "Add a time entry manually" },
 		});
 		setIcon(addManual, "list-plus");
 		addManual.onclick = () => this.openManualEntry();
 
 		const start = row.createEl("button", {
-			cls: "companion-icon-btn companion-icon-btn-accent",
+			cls: "companion-icon-btn companion-icon-btn-accent mod-cta",
 			attr: { "aria-label": "Start timer" },
 		});
 		setIcon(start, "play");
