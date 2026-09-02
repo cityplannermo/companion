@@ -21,7 +21,7 @@ Any markdown note with:
 - `cost:` (a number, £ per period), optional, on a Reminder — combined with `recur:` this is a Subscription; on its own, without `recur:`, it's a one-off Expense. Both show up in the Finance tab, not just the calendar.
 - `invoiceReminder: true`, optional, on a repeating Reminder — shows it with the same pill colour as an Invoice, as a nudge to go generate one that day; it doesn't create an invoice itself
 - `remind:` (`9am`/`1d`/`1w`/`1m`), optional, on a Meeting/Reminder/Task/Event — an advance desktop notification (9am on the item's own date, or 1 day/week/month ahead of it), set per item via the shared editor's "Remind" field. Fires regardless of the "Notify when something starts" setting -- it's opted into per item, not gated by that toggle.
-- Any note tagged `post` with a `published:` date — shown on the calendar as its own category, pinned to that date. Unlike everything else above, this is read-only: Companion never creates, edits, or deletes a Post note (that's the content workflow's own job) -- clicking one just opens it. A Post without a `published:` date yet (an Idea or an in-progress draft) has nothing to plot, so it doesn't appear until it does.
+- Any note tagged `post` with a `published:` date — shown on the calendar as its own category, pinned to that date. Unlike everything else above, this is read-only: Companion never creates, edits, or deletes a Post note (that's the content workflow's own job) -- clicking one just opens it. A Post without a `published:` date yet (an Idea or an in-progress draft) has nothing to plot, unless it also carries a `scheduled:` target date -- that earns a dashed, faded pin on that date instead (same look as a projected recurring occurrence), and a desktop notification on the day itself asking whether it's gone out. Fill in `published:` by hand once it has, and the provisional pin is simply replaced by a real one; both fields are set directly on the note, same as everything else Companion treats as read-only here.
 - For the client dropdown in the Start Timer prompt (and the Meeting/invoice client fields): any note tagged `client` — its filename is what shows up as an option. No `client`-tagged notes yet means an empty dropdown, not an error; you can still type a client name freely.
 
 Optionally, a `status:` field is shown alongside the note's type in the calendar's agenda panel, and drives the task board's three columns.
@@ -49,11 +49,12 @@ A repeating Meeting, Event, Reminder or Task has exactly one real note — its `
 
 ## Finance
 
-The Finance tab has three sections, all built from ordinary Reminder and Invoice notes rather than a new note type:
+The Finance tab has four sections. Subscriptions, Expenses and Income are all built from ordinary Reminder and Invoice notes rather than a new note type; Other income is the one exception -- see below.
 
 - **Subscriptions** — a Reminder with both `recur:` and `cost:` set. Shows a monthly-equivalent running total and a **Renew** button per row.
 - **Expenses** — a Reminder with `cost:` set and no `recur:`. A one-off cost, with a running total.
 - **Income** — every note under `Admin/Invoices/`, newest first, summed per currency (a £ total and a $ total are never merged into one figure). The headline total is everything ever invoiced, not just paid; a circle button on each row toggles its own `paid:` flag, and a second line under the total shows how much of it has actually come in. Rows open the invoice note itself; creating or amending an invoice's own content always goes through **Generate invoice**, never this view -- Paid is the one thing this view itself writes.
+- **Other income** — ad hoc income with no client or invoice behind it (a Twitch tip, a one-off sale), each its own small note under `Admin/Income/` (tagged `income`, with `source:`, `amount:` and `currency:` fields). The **+ Income** button opens a small dialog for source, amount, currency and date and writes the note directly -- this is the one Finance section Companion owns end-to-end, since nothing else in the wiki produces this kind of note. Summed per currency like Income above, but never merged with it; no repeat or reminder options, since an ad hoc income entry records money already received rather than something still to come.
 
 A `Subscription` note template is available under Templates for typing one in by hand, though creating one from the Finance tab or the calendar's "Subscription" type is quicker.
 

@@ -3,15 +3,19 @@ import {
 	advanceRecurringOccurrence,
 	applyEventEdit,
 	CompanionInvoice,
+	CompanionOtherIncome,
 	CompanionReminder,
+	createOtherIncome,
 	createQuickNote,
 	getInvoices,
+	getOtherIncome,
 	getReminders,
 	monthlyEquivalentCost,
 	setInvoicePaid,
 } from "./data";
 import type { RecurKind } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
+import { AddIncomeModal } from "./financeUI";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
@@ -30,6 +34,7 @@ export const VIEW_TYPE_FINANCE = "companion-finance-view";
 export class FinanceView extends ItemView {
 	private reminders: CompanionReminder[] = [];
 	private invoices: CompanionInvoice[] = [];
+	private otherIncome: CompanionOtherIncome[] = [];
 	private selection = new Selection();
 
 	constructor(
@@ -66,6 +71,7 @@ export class FinanceView extends ItemView {
 	async refresh(): Promise<void> {
 		this.reminders = getReminders(this.app);
 		this.invoices = await getInvoices(this.app);
+		this.otherIncome = await getOtherIncome(this.app);
 		this.render();
 	}
 
@@ -80,8 +86,8 @@ export class FinanceView extends ItemView {
 		return this.reminders.filter((r) => !r.recur && r.cost != null).sort(byDate);
 	}
 
-	private selectableItems(): CompanionReminder[] {
-		return [...this.subscriptions(), ...this.expenses()];
+	private selectableItems(): { file: TFile }[] {
+		return [...this.subscriptions(), ...this.expenses(), ...this.otherIncome];
 	}
 
 	private selectedFiles(): TFile[] {
@@ -112,6 +118,7 @@ export class FinanceView extends ItemView {
 		this.renderSubscriptions(root);
 		this.renderExpenses(root);
 		this.renderIncome(root);
+		this.renderOtherIncome(root);
 	}
 
 	private renderHeader(parent: HTMLElement): void {
@@ -129,6 +136,11 @@ export class FinanceView extends ItemView {
 		setIcon(expBtn, "plus");
 		expBtn.createSpan({ text: "Expense" });
 		expBtn.onclick = () => this.openCreateCost("Expense — a one-off Reminder with a cost, created here as one.");
+
+		const incomeBtn = actions.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
+		setIcon(incomeBtn, "plus");
+		incomeBtn.createSpan({ text: "Income" });
+		incomeBtn.onclick = () => this.openAddIncome();
 	}
 
 	/** Subscriptions -- reminders with both a repeat rule and a cost -- get
@@ -339,6 +351,74 @@ export class FinanceView extends ItemView {
 		}
 	}
 
+	/** Other income -- ad hoc, one-off receipts (a Twitch tip, a one-off
+	 * sale) that don't fit the Invoice shape at all (see CompanionOtherIncome
+	 * in data.ts). A separate total per currency from Income above, since
+	 * "invoiced" and "just showed up" shouldn't be merged into one figure.
+	 * No paid toggle here -- unlike an invoice, an ad hoc income note only
+	 * ever gets created once the money's already in hand, so there's no
+	 * unpaid state to track. Delete-only via the usual right-click menu;
+	 * no dedicated edit modal for v1 -- open the note itself for a
+	 * correction, same as any other note in the wiki. */
+	private renderOtherIncome(parent: HTMLElement): void {
+		const items = this.otherIncome;
+		const list = parent.createDiv({ cls: "companion-finance-list" });
+
+		if (items.length === 0) {
+			list.createDiv({ cls: "companion-empty", text: "No other income yet. Use “+ Income” above for anything outside Invoicing -- a Twitch tip, a one-off sale." });
+			return;
+		}
+
+		const totals = new Map<string, number>();
+		for (const inc of items) {
+			const key = inc.currencySymbol || "£";
+			totals.set(key, (totals.get(key) ?? 0) + inc.amount);
+		}
+		const totalText = [...totals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
+
+		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
+		groupTitle.createSpan({ text: `Other income (${items.length})${totalText ? ` — ${totalText}` : ""}` });
+
+		for (const inc of items) {
+			const row = list.createDiv({ cls: "companion-list-row" });
+			row.toggleClass("is-selected", this.selection.has(inc.file.path));
+			row.oncontextmenu = (e) =>
+				showDeleteMenu(
+					this.app,
+					e,
+					inc.file,
+					this.selectedFiles(),
+					this.settings.confirmBeforeDelete,
+					() => this.afterDelete(),
+					undefined,
+					() => {
+						this.selection.toggle(inc.file.path);
+						this.render();
+					},
+					() => {
+						this.selection.clear();
+						this.render();
+					}
+				);
+
+			row.createDiv({
+				cls: "companion-list-row-date",
+				text: inc.date ? formatDisplayShortDate(inc.date) : "No date",
+			});
+
+			const title = row.createDiv({ cls: "companion-list-row-title", text: inc.source });
+			makeOpenable(this.app, title, inc.file, {
+				onToggleSelect: () => {
+					this.selection.toggle(inc.file.path);
+					this.render();
+				},
+				isSelecting: () => this.selection.size > 0,
+			});
+
+			row.createDiv({ cls: "companion-subscription-cost", text: `${inc.currencySymbol}${inc.amount.toFixed(2)}` });
+		}
+	}
+
 	/** Opens the shared editor modal to create a new subscription or
 	 * expense -- type is locked to Reminder here (see label below), since
 	 * anything created from the Finance tab is one or the other by
@@ -411,6 +491,21 @@ export class FinanceView extends ItemView {
 			},
 			label
 		).open();
+	}
+
+	/** Opens the small Add income modal, then writes a new ad hoc income
+	 * note straight away (see createOtherIncome in data.ts) -- no shared
+	 * editor detour, since none of that modal's fields (type, repeat,
+	 * remind, client) apply here. `knownSources` seeds the datalist with
+	 * whatever's already been used, so "Twitch" only needs typing once. */
+	private openAddIncome(): void {
+		const knownSources = [...new Set(this.otherIncome.map((i) => i.source))];
+		new AddIncomeModal(this.app, knownSources, (source, amount, currencySymbol, dateStr) => {
+			createOtherIncome(this.app, source, amount, currencySymbol, dateStr).then(
+				() => this.refresh(),
+				(err: Error) => new Notice(err.message)
+			);
+		}).open();
 	}
 }
 

@@ -1605,8 +1605,13 @@
 	cursor: pointer;
 }
 
+/* Force-hide: must always win regardless of source order against any
+   other class setting display on the same element (e.g. the recur-row
+   rows also carry .companion-event-editor-recur-row's `display: flex`,
+   same specificity -- without !important, whichever rule is later in
+   this file wins, which silently broke Cost/Repeat/Remind visibility). */
 .companion-hidden {
-	display: none;
+	display: none !important;
 }
 
 .companion-now-line {

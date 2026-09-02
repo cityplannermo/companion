@@ -31,7 +31,7 @@ function renderEventRow(app: App, parent: HTMLElement, item: CompanionEvent): vo
 	row.createDiv({ cls: "companion-list-row-date", text: item.time === "00:00" ? "All day" : item.time });
 	const title = row.createDiv({ cls: "companion-list-row-title", text: item.title });
 	if (item.client) title.createSpan({ cls: "companion-dashboard-client", text: ` — ${item.client}` });
-	row.createDiv({ cls: "companion-dashboard-type", text: typeLabel(item.type) });
+	row.createDiv({ cls: "companion-dashboard-type", text: item.type === "post" && item.provisional ? "Post · scheduled" : typeLabel(item.type) });
 	// A virtual (not-yet-materialised) recurring occurrence has no real
 	// note of its own yet -- opening it would open the series anchor
 	// instead and be confusing, so it's shown but not clickable here.

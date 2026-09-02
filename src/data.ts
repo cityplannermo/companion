@@ -49,6 +49,14 @@ export interface CompanionEvent {
 	// `file` directly (open, drag, edit, delete) must check this first and go
 	// through materialiseOccurrence()/skipRecurringOccurrence() instead.
 	virtualOf?: TFile;
+	// Set only on a Post pin standing in for a `scheduled:` date that hasn't
+	// been published yet (see the Posts pass in buildIndex() below) --
+	// unlike virtualOf, `file` here IS the real Post note, just not live
+	// yet. Rendered with the same dashed/faded treatment as a virtual
+	// recurring occurrence (reusing .companion-pill-virtual), for the same
+	// reason: it's a projection of something not fully real on this date
+	// yet, not a confirmed fact.
+	provisional?: boolean;
 }
 
 // One tag per type, matching System/Rules.md's standard tag set (singular).
@@ -226,10 +234,15 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 	}
 
 	// Posts -- a deliberately separate, narrower pass: only a `post`-tagged
-	// note with an actual `published:` date earns a calendar pin (an Idea or
-	// an In-Progress draft has nothing to plot yet). Everything else on a
-	// CompanionEvent that implies Companion can edit it stays undefined,
-	// since it can't -- see the CompanionEventType comment above.
+	// note with an actual `published:` date, or a `scheduled:` target date
+	// while it's still awaiting one, earns a calendar pin (an Idea or an
+	// In-Progress draft with neither has nothing to plot yet). A real
+	// `published:` date always wins over `scheduled:` once it's set -- at
+	// that point the projection has become a fact, so the provisional pin
+	// on the scheduled date simply stops appearing (see `provisional` on
+	// CompanionEvent above). Everything else on a CompanionEvent that
+	// implies Companion can edit it stays undefined, since it can't -- see
+	// the CompanionEventType comment above.
 	for (const file of app.vault.getMarkdownFiles()) {
 		const cache = app.metadataCache.getFileCache(file);
 		const frontmatter = cache?.frontmatter;
@@ -237,19 +250,22 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 		if (!getTags(frontmatter).includes("post")) continue;
 
 		const published = normaliseDate(frontmatter["published"]);
-		if (!published) continue;
+		const scheduled = published ? null : normaliseDate(frontmatter["scheduled"]);
+		const pinDate = published ?? scheduled;
+		if (!pinDate) continue;
 
 		const event: CompanionEvent = {
 			file,
 			type: "post",
 			title: postTitle(file.basename),
-			date: published,
+			date: pinDate,
 			time: "00:00",
+			provisional: !published,
 		};
 
-		const bucket = index.get(published);
+		const bucket = index.get(pinDate);
 		if (bucket) bucket.push(event);
-		else index.set(published, [event]);
+		else index.set(pinDate, [event]);
 	}
 
 	return index;
@@ -1525,6 +1541,78 @@ export async function setInvoicePaid(app: App, file: TFile, paid: boolean): Prom
 		if (paid) fm["paid"] = true;
 		else delete fm["paid"];
 	});
+}
+
+const OTHER_INCOME_FOLDER = "Admin/Income";
+
+/** A one-off payment with no client relationship behind it -- a Twitch
+ * tip, a one-off sale -- doesn't fit the Invoice shape (no line items, no
+ * client, always goes through the Invoice Create Procedure) or the
+ * Reminder shape (nothing to remind about -- the money's already in
+ * hand), so it gets its own minimal note instead: just source, date and
+ * amount. Unlike Invoices and Posts, Companion owns this note type
+ * end-to-end (create here, delete via the usual delete menu) -- there's
+ * no other workflow in the wiki that would ever produce one. */
+export interface CompanionOtherIncome {
+	file: TFile;
+	source: string;
+	date: string | null; // YYYY-MM-DD
+	amount: number;
+	currencySymbol: string; // "£" or "$"
+}
+
+/** Every ad hoc income note, newest first -- feeds the Finance tab's
+ * Income section as a second, separate total alongside invoiced income
+ * (see renderIncome in FinanceView.ts): "invoiced" and "money that just
+ * showed up" are different enough facts that merging them into one
+ * figure would be misleading either way. */
+export async function getOtherIncome(app: App): Promise<CompanionOtherIncome[]> {
+	const items: CompanionOtherIncome[] = [];
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (file.parent?.path !== OTHER_INCOME_FOLDER) continue;
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) continue;
+		const amount = typeof frontmatter["amount"] === "number" ? frontmatter["amount"] : null;
+		if (amount == null) continue;
+
+		items.push({
+			file,
+			source: typeof frontmatter["source"] === "string" && frontmatter["source"] ? frontmatter["source"] : file.basename,
+			date: normaliseDate(frontmatter["date"]),
+			amount,
+			currencySymbol: frontmatter["currency"] === "$" ? "$" : "£",
+		});
+	}
+	return items.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+}
+
+/** Writes a new ad hoc income note directly -- no dropdown/type detour,
+ * since this is the only thing the "+ Income" button in Finance can
+ * create. `currencySymbol` is whatever the small Add income modal's
+ * dropdown was set to ("£" or "$"); anything else is treated as "£" on
+ * read (see getOtherIncome above), so this always writes one of the two. */
+export async function createOtherIncome(app: App, source: string, amount: number, currencySymbol: string, dateStr: string): Promise<TFile> {
+	const safeSource = source.trim();
+	if (!safeSource) throw new Error("A source is needed to record income.");
+	if (!(amount > 0)) throw new Error("An amount greater than zero is needed.");
+
+	const date = parseDateStr(dateStr);
+	const titleBase = sanitiseFilename(`${safeSource} - ${formatDMY(date)}`);
+	let path = `${OTHER_INCOME_FOLDER}/${titleBase}.md`;
+	let n = 2;
+	while (app.vault.getAbstractFileByPath(path)) {
+		path = `${OTHER_INCOME_FOLDER}/${titleBase} (${n}).md`;
+		n++;
+	}
+
+	const file = await app.vault.create(path, `---\ndate: ${dateStr}\ntags:\n  - income\nsource:\namount:\ncurrency:\n---\n\n`);
+	await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+		fm["source"] = safeSource;
+		fm["amount"] = amount;
+		fm["currency"] = currencySymbol === "$" ? "$" : "£";
+	});
+	return file;
 }
 
 // en-GB's Intl month abbreviation gives "Sept" for September (4 letters,

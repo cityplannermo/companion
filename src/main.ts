@@ -215,6 +215,7 @@ export default class CompanionPlugin extends Plugin {
 
 		if (this.settings.dueNotifications) this.checkExactStartNotifications();
 		this.checkLeadNotifications(formatDate(new Date()));
+		this.checkPostScheduledNotifications(formatDate(new Date()));
 	}
 
 	/** Fires a desktop notification for anything timed that started since
@@ -293,6 +294,31 @@ export default class CompanionPlugin extends Plugin {
 
 				new Notification(`${label}: ${item.title}`, { body: `${lead.label} (${targetDateStr})` });
 			}
+		}
+	}
+
+	/** A Post's own advance notice -- distinct from checkLeadNotifications
+	 * above, since a Post's `scheduled:` field is a plain target date, not
+	 * one of the RemindLead options, and Posts don't set `remind` at all
+	 * (see the `provisional` flag on CompanionEvent in data.ts). Fires once,
+	 * on the scheduled date itself, for exactly as long as the post hasn't
+	 * actually gone out yet -- once `published:` is set by hand, buildIndex()
+	 * stops projecting a provisional pin for that note entirely, so it drops
+	 * out of `items` below on its own, no extra check needed. Companion still
+	 * never writes to the Post note itself here -- just a nudge to check and
+	 * fill in `published:` once it's live. Shares leadNotifiedToday's
+	 * same-day dedup and rollover with checkLeadNotifications, which always
+	 * runs first each tick. */
+	private checkPostScheduledNotifications(todayStr: string): void {
+		const index = buildIndex(this.app);
+		const items = (index.get(todayStr) ?? []).filter((ev) => ev.type === "post" && ev.provisional);
+
+		for (const item of items) {
+			const dedupKey = `post-scheduled:${item.file.path}:${item.date}`;
+			if (this.leadNotifiedToday.has(dedupKey)) continue;
+			this.leadNotifiedToday.add(dedupKey);
+
+			new Notification(`Scheduled today: ${item.title}`, { body: "Has it gone out? Update published: once it has." });
 		}
 	}
 

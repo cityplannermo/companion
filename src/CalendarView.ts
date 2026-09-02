@@ -806,8 +806,12 @@ export class CalendarView extends ItemView {
 		// A Post pin is read-only here -- no drag (there's no `date` field to
 		// write to), no edit/delete menu (Companion doesn't own this note's
 		// shape), just open it like any other note. See the CompanionEventType
-		// comment in data.ts.
+		// comment in data.ts. A provisional (scheduled-not-yet-published) pin
+		// additionally gets the same dashed/faded treatment as a virtual
+		// recurring occurrence -- still just opens the note, nothing else
+		// changes.
 		if (ev.type === "post") {
+			if (ev.provisional) el.addClass("companion-pill-virtual");
 			makeOpenable(this.app, el, ev.file);
 			return;
 		}
@@ -961,11 +965,12 @@ export class CalendarView extends ItemView {
 		// an openable title, a label -- no context menu, no drag, no edit
 		// pencil, since Companion doesn't own this note's shape.
 		if (ev.type === "post") {
+			if (ev.provisional) row.addClass("companion-pill-virtual");
 			row.createSpan({ cls: `companion-dot companion-dot-${visualType(ev)}` });
 			const txt = row.createDiv({ cls: "companion-item-txt" });
 			const title = txt.createDiv({ cls: "companion-item-title", text: ev.title });
 			makeOpenable(this.app, title, ev.file);
-			txt.createDiv({ cls: "companion-item-sub", text: TYPE_LABELS[visualType(ev)] });
+			txt.createDiv({ cls: "companion-item-sub", text: ev.provisional ? "Scheduled" : TYPE_LABELS[visualType(ev)] });
 			return;
 		}
 
