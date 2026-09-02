@@ -137,7 +137,7 @@ export class EventEditorModal extends Modal {
 		if (isInvoice || this.lockedTypeLabel) {
 			contentEl.createDiv({
 				cls: "companion-event-editor-type-locked",
-				text: isInvoice ? "Invoice — edited via the Invoice Create Procedure, not here." : (this.lockedTypeLabel as string),
+				text: isInvoice ? "Invoice — edited via the Invoice Create Procedure, not here." : this.lockedTypeLabel,
 			});
 		} else {
 			const initialValue = dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder);

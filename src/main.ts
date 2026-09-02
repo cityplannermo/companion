@@ -263,7 +263,7 @@ export default class CompanionPlugin extends Plugin {
 			if (leaf.view instanceof RemindersView) leaf.view.refresh();
 		}
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_FINANCE)) {
-			if (leaf.view instanceof FinanceView) leaf.view.refresh();
+			if (leaf.view instanceof FinanceView) void leaf.view.refresh();
 		}
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TIME)) {
 			if (leaf.view instanceof TimeView) leaf.view.refresh();
