@@ -991,17 +991,80 @@
 	gap: 4px;
 }
 
-.companion-finance-overview {
-	font-size: 0.95em;
-	color: var(--text-normal);
-	font-weight: 600;
-	margin-bottom: 2px;
+/* Finance overview: stat-tile grid, and the compact note for currencies
+   that don't fit a fixed tile -- see FinanceView.renderOverviewTiles(). */
+
+.companion-finance-tiles {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 8px;
+	margin-bottom: 12px;
 }
 
-.companion-finance-run-rate {
-	font-size: 0.85em;
+.companion-finance-tile {
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	padding: 8px 10px;
+}
+
+.companion-finance-tile-label {
+	font-size: 0.72em;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
 	color: var(--text-muted);
-	margin-bottom: 10px;
+	margin-bottom: 3px;
+}
+
+.companion-finance-tile-value {
+	font-size: 1.05em;
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+.companion-finance-tile-positive {
+	color: var(--color-green, #5fbf7a);
+}
+
+.companion-finance-tile-negative {
+	color: var(--text-error, #c8524f);
+}
+
+.companion-finance-other-currencies {
+	font-size: 0.8em;
+	color: var(--text-muted);
+	margin-bottom: 12px;
+}
+
+/* Finance sections: Subscriptions/Expenses/Income/Invoiced, each
+   foldable with its own filter box, sort dropdown and Load more --
+   see FinanceView.renderSection(). */
+
+.companion-finance-section {
+	margin-bottom: 14px;
+}
+
+.companion-finance-section-controls {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	row-gap: 6px;
+	gap: 8px;
+	margin-bottom: 6px;
+}
+
+.companion-load-more-btn {
+	background: transparent;
+	border: none;
+	color: var(--interactive-accent);
+	cursor: pointer;
+	padding: 6px 0;
+	font-size: 0.85em;
+	text-align: left;
+}
+
+.companion-load-more-btn:hover {
+	text-decoration: underline;
 }
 
 .companion-task-overdue {

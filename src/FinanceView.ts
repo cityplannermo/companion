@@ -31,6 +31,37 @@ export const VIEW_TYPE_FINANCE = "companion-finance-view";
 // calendar instead of in this list -- see openCreate/openEditor below.
 const FINANCE_ALLOWED_TYPES: DropdownValue[] = ["subscription", "expense", "income"];
 
+// Each of Finance's four lists (Subscriptions/Expenses/Income/Invoiced) gets
+// its own independent fold state, filter text, sort choice and "how many
+// rows to show" -- added 2 September 2026 once Mo's own lists grew past a
+// screenful and he asked for fold/filter/sort/pagination rather than one
+// long scroll. State is in-memory only (reset on view close/reopen), the
+// same convention Task board's own column folding already uses -- not
+// worth a new persisted-settings key for something this cheap to redo.
+type FinanceSectionKey = "subscriptions" | "expenses" | "income" | "invoiced";
+type SortKey = "date-desc" | "date-asc" | "amount-desc" | "amount-asc" | "title-asc" | "title-desc";
+const DEFAULT_SORT: SortKey = "date-desc";
+const PAGE_SIZE = 15;
+
+const SORT_OPTIONS: [SortKey, string][] = [
+	["date-desc", "Sort: Newest first"],
+	["date-asc", "Sort: Oldest first"],
+	["amount-desc", "Sort: Amount (high–low)"],
+	["amount-asc", "Sort: Amount (low–high)"],
+	["title-asc", "Sort: Title (A–Z)"],
+	["title-desc", "Sort: Title (Z–A)"],
+];
+
+interface SectionUIState {
+	filter: string;
+	sort: SortKey;
+	visibleCount: number;
+}
+
+function newSectionState(): SectionUIState {
+	return { filter: "", sort: DEFAULT_SORT, visibleCount: PAGE_SIZE };
+}
+
 /**
  * Companion's Finance tab: Subscriptions, Expenses, Income (Reminders) and
  * Income (Invoices), each an ordinary Reminder or Invoice note distinguished
@@ -45,6 +76,13 @@ export class FinanceView extends ItemView {
 	private reminders: CompanionReminder[] = [];
 	private invoices: CompanionInvoice[] = [];
 	private selection = new Selection();
+	private collapsed: Set<FinanceSectionKey> = new Set();
+	private sectionState: Record<FinanceSectionKey, SectionUIState> = {
+		subscriptions: newSectionState(),
+		expenses: newSectionState(),
+		income: newSectionState(),
+		invoiced: newSectionState(),
+	};
 
 	constructor(
 		leaf: WorkspaceLeaf,
@@ -129,8 +167,7 @@ export class FinanceView extends ItemView {
 				this.render();
 			}
 		);
-		this.renderOverview(root);
-		this.renderMonthlyRunRate(root);
+		this.renderOverviewTiles(root);
 		this.renderSubscriptions(root);
 		this.renderExpenses(root);
 		this.renderIncomeReminders(root);
@@ -151,9 +188,9 @@ export class FinanceView extends ItemView {
 	 * with no `currency` field defaults to DEFAULT_CURRENCY -- everything
 	 * written before currencies existed), summing each bucket through
 	 * `amountFn`. Shared by every per-section total below and by
-	 * renderOverview()/renderMonthlyRunRate(), so a Subscription in USD is
-	 * never silently added to one in GBP -- Mo's own "all currencies, since
-	 * this is a public tool" request from 2 September 2026. */
+	 * renderOverviewTiles(), so a Subscription in USD is never silently
+	 * added to one in GBP -- Mo's own "all currencies, since this is a
+	 * public tool" request from 2 September 2026. */
 	private bucketByCurrency(items: CompanionReminder[], amountFn: (r: CompanionReminder) => number): Map<string, number> {
 		const totals = new Map<string, number>();
 		for (const r of items) {
@@ -180,10 +217,9 @@ export class FinanceView extends ItemView {
 	 * everything else -- see currencies.ts), so codeForInvoiceMarker()
 	 * recovers the code before bucketing, the same way bucketByCurrency()
 	 * above does for Reminders -- otherwise a GBP invoice ("£") and a GBP
-	 * one-off Income entry ("GBP") would land in two different buckets in
-	 * renderOverview() below. Shared by renderIncome() (the Invoiced
-	 * section's own header line) and renderOverview() below, so the two can
-	 * never drift apart. */
+	 * one-off Income entry ("GBP") would land in two different buckets.
+	 * Shared by renderIncome() (the Invoiced section's own header line) and
+	 * renderOverviewTiles() below, so the two can never drift apart. */
 	private invoiceTotals(): { total: Map<string, number>; paid: Map<string, number> } {
 		const total = new Map<string, number>();
 		const paid = new Map<string, number>();
@@ -196,81 +232,206 @@ export class FinanceView extends ItemView {
 		return { total, paid };
 	}
 
-	/** "To date" -- money actually in hand (paid invoices + one-off Income)
-	 * against money actually out (one-off Expenses), netted per currency.
-	 * Deliberately excludes recurring Subscriptions/Income: Companion only
-	 * tracks a recurring item's *next* due date, not how many periods have
-	 * actually elapsed and been paid since it started, so a running total
-	 * for those would be a guess dressed up as a fact -- the Recurring
-	 * run-rate line below covers them instead, as a forward-looking monthly
-	 * figure, not a total. Each currency present gets its own in/out/net --
-	 * never merged into one number across currencies, since that would need
-	 * an exchange rate Companion doesn't have. Hidden entirely when there's
-	 * nothing to report at all. */
-	private renderOverview(parent: HTMLElement): void {
-		const { paid: paidInvoices } = this.invoiceTotals();
+	/** "At a glance" overview -- a small grid of stat tiles for the figures
+	 * Mo actually checks day to day: money in hand to date, recurring
+	 * run-rate, and how invoicing's going. Deliberately tiles-only, no
+	 * charts (Mo's own call, 2 September 2026: "nothing overblown just
+	 * working with what i actually need to use it for").
+	 *
+	 * Tiles show DEFAULT_CURRENCY (GBP) figures only -- the common case for
+	 * Mo's own books, and the only shape that fits a fixed grid without
+	 * growing a fresh row of tiles per currency in use. Any activity in
+	 * another currency is never dropped, just demoted to a compact text
+	 * line underneath (see the "other currencies" block below), the same
+	 * currency-safety principle as bucketByCurrency() -- nothing is ever
+	 * merged across currencies into a number an exchange rate would be
+	 * needed to make meaningful.
+	 *
+	 * "To date" (paid invoices + one-off Income, netted against one-off
+	 * Expenses) deliberately excludes recurring Subscriptions/Income, same
+	 * reasoning as always: Companion only tracks a recurring item's *next*
+	 * due date, not how many periods have actually elapsed and been paid,
+	 * so a running total for those would be a guess dressed up as a fact --
+	 * the Recurring tile covers them instead, as a forward-looking monthly
+	 * figure, not a total. */
+	private renderOverviewTiles(parent: HTMLElement): void {
+		const { total: invoiceTotal, paid: paidInvoices } = this.invoiceTotals();
 		const oneOffIncome = this.bucketByCurrency(
 			this.incomeReminders().filter((r) => !r.recur),
 			(r) => r.cost ?? 0
 		);
 		const oneOffExpenses = this.bucketByCurrency(this.expenses(), (r) => r.cost ?? 0);
-
 		const inTotals = new Map<string, number>(oneOffIncome);
 		for (const [code, amt] of paidInvoices) inTotals.set(code, (inTotals.get(code) ?? 0) + amt);
 
-		if (inTotals.size === 0 && oneOffExpenses.size === 0) return;
-
-		const currencies = [...new Set([...inTotals.keys(), ...oneOffExpenses.keys()])].sort((a, b) =>
-			a === DEFAULT_CURRENCY ? -1 : b === DEFAULT_CURRENCY ? 1 : a.localeCompare(b)
-		);
-		const lines = currencies.map((code) => {
-			const income = inTotals.get(code) ?? 0;
-			const expense = oneOffExpenses.get(code) ?? 0;
-			const net = income - expense;
-			const netText = net === 0 ? "break-even" : `net ${formatMoney(code, Math.abs(net))} ${net > 0 ? "in" : "out"}`;
-			return `${formatMoney(code, income)} in, ${formatMoney(code, expense)} out — ${netText}`;
-		});
-
-		parent.createDiv({
-			cls: "companion-finance-overview",
-			text: `To date: ${lines.join("; ")}`,
-		});
-	}
-
-	/** A one-line "how much moves every month" figure -- Subscriptions'
-	 * monthly-equivalent total against recurring Income's own (both use the
-	 * same monthlyEquivalentCost() normalisation across daily/weekly/
-	 * monthly/yearly/biennial), netted per currency. Deliberately excludes
-	 * one-off Expenses and Income -- those aren't recurring, so they'd
-	 * distort a per-month figure rather than inform it; Income (Invoices)
-	 * below has its own "paid so far" line for actuals. Hidden entirely
-	 * when there's nothing recurring on either side, rather than showing
-	 * "£0.00". Nets in and out for a currency only when that currency is
-	 * the only one recurring on either side -- summing two different
-	 * currencies into one net figure would need an exchange rate. */
-	private renderMonthlyRunRate(parent: HTMLElement): void {
-		const outgoing = this.bucketByCurrency(this.subscriptions(), (r) => monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind));
-		const incoming = this.bucketByCurrency(
+		const recurOut = this.bucketByCurrency(this.subscriptions(), (r) => monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind));
+		const recurIn = this.bucketByCurrency(
 			this.incomeReminders().filter((r) => !!r.recur),
 			(r) => monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind)
 		);
-		if (outgoing.size === 0 && incoming.size === 0) return;
 
-		const inText = this.formatBucketed(incoming, "/month") || `${formatMoney(DEFAULT_CURRENCY, 0)}/month`;
-		const outText = this.formatBucketed(outgoing, "/month") || `${formatMoney(DEFAULT_CURRENCY, 0)}/month`;
+		const hasToDate = inTotals.size > 0 || oneOffExpenses.size > 0;
+		const hasRecurring = recurOut.size > 0 || recurIn.size > 0;
+		const hasInvoiced = invoiceTotal.size > 0;
+		if (!hasToDate && !hasRecurring && !hasInvoiced) return;
 
-		const currencies = new Set([...outgoing.keys(), ...incoming.keys()]);
-		let netText = "";
-		if (currencies.size <= 1) {
-			const code = [...currencies][0] ?? DEFAULT_CURRENCY;
-			const net = (incoming.get(code) ?? 0) - (outgoing.get(code) ?? 0);
-			netText = net === 0 ? " — break-even" : ` — net ${formatMoney(code, Math.abs(net))}/month ${net > 0 ? "in" : "out"}`;
+		const grid = parent.createDiv({ cls: "companion-finance-tiles" });
+
+		if (hasToDate) {
+			const income = inTotals.get(DEFAULT_CURRENCY) ?? 0;
+			const expense = oneOffExpenses.get(DEFAULT_CURRENCY) ?? 0;
+			const net = income - expense;
+			addTile(grid, "Income to date", formatMoney(DEFAULT_CURRENCY, income), "positive");
+			addTile(grid, "Expenses to date", formatMoney(DEFAULT_CURRENCY, expense), "negative");
+			addTile(grid, "Net to date", formatMoney(DEFAULT_CURRENCY, net), toneFor(net));
 		}
 
-		parent.createDiv({
-			cls: "companion-finance-run-rate",
-			text: `Recurring: ${inText} in, ${outText} out${netText}`,
+		if (hasRecurring) {
+			const currencies = new Set([...recurIn.keys(), ...recurOut.keys()]);
+			if (currencies.size <= 1) {
+				const code = [...currencies][0] ?? DEFAULT_CURRENCY;
+				const net = (recurIn.get(code) ?? 0) - (recurOut.get(code) ?? 0);
+				addTile(grid, "Recurring, net/month", `${formatMoney(code, Math.abs(net))} ${net >= 0 ? "in" : "out"}`, toneFor(net));
+			} else {
+				addTile(grid, "Recurring in/month", this.formatBucketed(recurIn) || formatMoney(DEFAULT_CURRENCY, 0), "positive");
+				addTile(grid, "Recurring out/month", this.formatBucketed(recurOut) || formatMoney(DEFAULT_CURRENCY, 0), "negative");
+			}
+		}
+
+		if (hasInvoiced) {
+			addTile(grid, "Invoiced total", formatMoney(DEFAULT_CURRENCY, invoiceTotal.get(DEFAULT_CURRENCY) ?? 0));
+			addTile(grid, "Paid so far", formatMoney(DEFAULT_CURRENCY, paidInvoices.get(DEFAULT_CURRENCY) ?? 0), "positive");
+		}
+
+		const otherLines: string[] = [];
+		const otherIn = withoutCode(inTotals, DEFAULT_CURRENCY);
+		const otherOut = withoutCode(oneOffExpenses, DEFAULT_CURRENCY);
+		if (otherIn.size || otherOut.size) {
+			otherLines.push(`To date, other currencies: ${this.formatBucketed(otherIn) || "—"} in, ${this.formatBucketed(otherOut) || "—"} out`);
+		}
+		const otherRecurIn = withoutCode(recurIn, DEFAULT_CURRENCY);
+		const otherRecurOut = withoutCode(recurOut, DEFAULT_CURRENCY);
+		if (otherRecurIn.size || otherRecurOut.size) {
+			otherLines.push(
+				`Recurring, other currencies: ${this.formatBucketed(otherRecurIn, "/month") || "—"} in, ${this.formatBucketed(otherRecurOut, "/month") || "—"} out`
+			);
+		}
+		const otherInvoiced = withoutCode(invoiceTotal, DEFAULT_CURRENCY);
+		const otherPaid = withoutCode(paidInvoices, DEFAULT_CURRENCY);
+		if (otherInvoiced.size) {
+			const paidNote = otherPaid.size ? ` (${this.formatBucketed(otherPaid)} paid)` : "";
+			otherLines.push(`Invoiced, other currencies: ${this.formatBucketed(otherInvoiced)}${paidNote}`);
+		}
+		if (otherLines.length > 0) {
+			const note = parent.createDiv({ cls: "companion-finance-other-currencies" });
+			for (const line of otherLines) note.createDiv({ text: line });
+		}
+	}
+
+	/** Shared chrome for every collapsible Finance list section: a
+	 * foldable header (chevron, label, running total, click anywhere to
+	 * fold), an optional subtitle line that stays visible even while
+	 * folded (Invoiced's "paid so far"), a filter box + sort dropdown
+	 * shown only while expanded, the section's own rows via `renderRow`,
+	 * paginated to a "Load more" button, and empty states that
+	 * distinguish "nothing here at all" from "nothing matches your
+	 * filter". Generic over T so the same method serves both
+	 * CompanionReminder (Subscriptions/Expenses/Income) and
+	 * CompanionInvoice (Invoiced) sections. */
+	private renderSection<T>(
+		parent: HTMLElement,
+		key: FinanceSectionKey,
+		allItems: T[],
+		opts: {
+			titleText: string;
+			totalText: string;
+			subtitleText?: string;
+			emptyText: string;
+			searchText: (item: T) => string;
+			sortComparators: Record<SortKey, (a: T, b: T) => number>;
+			renderRow: (list: HTMLElement, item: T) => void;
+		}
+	): void {
+		const state = this.sectionState[key];
+		const isCollapsed = this.collapsed.has(key);
+
+		const section = parent.createDiv({ cls: "companion-finance-section" });
+		section.setAttribute("data-finance-section", key);
+
+		const header = section.createDiv({ cls: "companion-list-group-title" });
+		const chevron = header.createSpan({ cls: "companion-list-group-chevron" });
+		setIcon(chevron, isCollapsed ? "chevron-right" : "chevron-down");
+		header.createSpan({ text: `${opts.titleText} (${allItems.length})${opts.totalText ? ` — ${opts.totalText}` : ""}` });
+		header.onclick = () => {
+			if (isCollapsed) this.collapsed.delete(key);
+			else this.collapsed.add(key);
+			this.render();
+		};
+
+		if (opts.subtitleText) {
+			section.createDiv({ cls: "companion-empty", text: opts.subtitleText });
+		}
+
+		if (isCollapsed) return;
+
+		if (allItems.length === 0) {
+			section.createDiv({ cls: "companion-empty", text: opts.emptyText });
+			return;
+		}
+
+		const controls = section.createDiv({ cls: "companion-finance-section-controls" });
+		const filterInput = controls.createEl("input", {
+			cls: "companion-filter-input",
+			attr: { type: "text", placeholder: "Filter…" },
 		});
+		filterInput.value = state.filter;
+		filterInput.oninput = () => {
+			state.filter = filterInput.value;
+			state.visibleCount = PAGE_SIZE; // a new search starts from the top
+			this.render();
+			// render() rebuilds every input and loses focus/caret -- restore
+			// both, scoped to this section specifically since there are now
+			// four independent filter boxes on the page at once.
+			const restored = this.contentEl.querySelector<HTMLInputElement>(
+				`[data-finance-section="${key}"] .companion-filter-input`
+			);
+			restored?.focus();
+			restored?.setSelectionRange(state.filter.length, state.filter.length);
+		};
+
+		const sortSelect = controls.createEl("select", { cls: "companion-sort-select" });
+		for (const [value, text] of SORT_OPTIONS) sortSelect.createEl("option", { text, attr: { value } });
+		sortSelect.value = state.sort;
+		sortSelect.onchange = () => {
+			state.sort = sortSelect.value as SortKey;
+			this.render();
+		};
+
+		const query = state.filter.trim().toLowerCase();
+		const filtered = query ? allItems.filter((item) => opts.searchText(item).toLowerCase().includes(query)) : allItems;
+
+		if (filtered.length === 0) {
+			section.createDiv({ cls: "companion-empty", text: `No matches for "${state.filter.trim()}".` });
+			return;
+		}
+
+		const sorted = [...filtered].sort(opts.sortComparators[state.sort]);
+		const visible = sorted.slice(0, state.visibleCount);
+
+		const list = section.createDiv({ cls: "companion-finance-list" });
+		for (const item of visible) opts.renderRow(list, item);
+
+		const remaining = sorted.length - visible.length;
+		if (remaining > 0) {
+			const loadMore = section.createEl("button", {
+				cls: "companion-load-more-btn",
+				text: `Load ${Math.min(PAGE_SIZE, remaining)} more (${remaining} remaining)`,
+			});
+			loadMore.onclick = () => {
+				state.visibleCount += PAGE_SIZE;
+				this.render();
+			};
+		}
 	}
 
 	/** Subscriptions -- reminders with both a repeat rule and a cost, no
@@ -282,69 +443,67 @@ export class FinanceView extends ItemView {
 	private renderSubscriptions(parent: HTMLElement): void {
 		const items = this.subscriptions();
 		const todayStr = formatDate(new Date());
-		const list = parent.createDiv({ cls: "companion-finance-list" });
-
-		if (items.length === 0) {
-			list.createDiv({ cls: "companion-empty", text: "No subscriptions yet." });
-			return;
-		}
-
 		const totals = this.bucketByCurrency(items, (r) => monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind));
-		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Subscriptions (${items.length}) — ${this.formatBucketed(totals, "/month")}` });
 
-		for (const sub of items) {
-			const row = list.createDiv({ cls: "companion-list-row" });
-			row.toggleClass("is-selected", this.selection.has(sub.file.path));
-			row.oncontextmenu = (e) =>
-				showDeleteMenu(
-					this.app,
-					e,
-					sub.file,
-					this.selectedFiles(),
-					this.settings.confirmBeforeDelete,
-					() => this.afterDelete(),
-					() => this.openEditor(sub),
-					() => {
+		this.renderSection(parent, "subscriptions", items, {
+			titleText: "Subscriptions",
+			totalText: this.formatBucketed(totals, "/month"),
+			emptyText: "No subscriptions yet.",
+			searchText: (r) => r.title,
+			sortComparators: REMINDER_COMPARATORS,
+			renderRow: (list, sub) => {
+				const row = list.createDiv({ cls: "companion-list-row" });
+				row.toggleClass("is-selected", this.selection.has(sub.file.path));
+				row.oncontextmenu = (e) =>
+					showDeleteMenu(
+						this.app,
+						e,
+						sub.file,
+						this.selectedFiles(),
+						this.settings.confirmBeforeDelete,
+						() => this.afterDelete(),
+						() => this.openEditor(sub),
+						() => {
+							this.selection.toggle(sub.file.path);
+							this.render();
+						},
+						() => {
+							this.selection.clear();
+							this.render();
+						}
+					);
+
+				row.createDiv({
+					cls: "companion-list-row-date",
+					text: sub.date ? formatDisplayShortDate(sub.date) : "No date",
+				});
+				if (sub.date && sub.date < todayStr) row.addClass("companion-reminder-overdue");
+
+				const title = row.createDiv({ cls: "companion-list-row-title", text: sub.title });
+				makeOpenable(this.app, title, sub.file, {
+					onToggleSelect: () => {
 						this.selection.toggle(sub.file.path);
 						this.render();
 					},
-					() => {
-						this.selection.clear();
-						this.render();
-					}
-				);
+					isSelecting: () => this.selection.size > 0,
+				});
 
-			row.createDiv({
-				cls: "companion-list-row-date",
-				text: sub.date ? formatDisplayShortDate(sub.date) : "No date",
-			});
-			if (sub.date && sub.date < todayStr) row.addClass("companion-reminder-overdue");
+				row.createDiv({
+					cls: "companion-subscription-cost",
+					text: `${formatMoney(sub.currency ?? DEFAULT_CURRENCY, sub.cost ?? 0)}/${periodSuffix(sub.recur as RecurKind)}`,
+				});
 
-			const title = row.createDiv({ cls: "companion-list-row-title", text: sub.title });
-			makeOpenable(this.app, title, sub.file, {
-				onToggleSelect: () => {
-					this.selection.toggle(sub.file.path);
-					this.render();
-				},
-				isSelecting: () => this.selection.size > 0,
-			});
-
-			row.createDiv({
-				cls: "companion-subscription-cost",
-				text: `${formatMoney(sub.currency ?? DEFAULT_CURRENCY, sub.cost ?? 0)}/${periodSuffix(sub.recur as RecurKind)}`,
-			});
-
-			const renew = row.createSpan({ cls: "companion-item-rename-btn", attr: { "aria-label": "Renew -- push the due date forward one period" } });
-			setIcon(renew, "rotate-cw");
-			renew.onclick = (e) => {
-				e.stopPropagation();
-				advanceRecurringOccurrence(this.app, sub.file).then(
-					() => this.refresh(),
-					(err: Error) => new Notice(err.message)
-				);
-			};
-		}
+				const renew = row.createSpan({ cls: "companion-item-rename-btn", attr: { "aria-label": "Renew -- push the due date forward one period" } });
+				setIcon(renew, "rotate-cw");
+				renew.onclick = (e) => {
+					e.stopPropagation();
+					advanceRecurringOccurrence(this.app, sub.file).then(
+						() => this.refresh(),
+						(err: Error) => new Notice(err.message)
+					);
+				};
+			},
+		});
 	}
 
 	/** Expenses -- one-off reminders with a cost but no repeat rule and no
@@ -354,56 +513,54 @@ export class FinanceView extends ItemView {
 	private renderExpenses(parent: HTMLElement): void {
 		const items = this.expenses();
 		const todayStr = formatDate(new Date());
-		const list = parent.createDiv({ cls: "companion-finance-list" });
-
-		if (items.length === 0) {
-			list.createDiv({ cls: "companion-empty", text: "No expenses yet." });
-			return;
-		}
-
 		const totals = this.bucketByCurrency(items, (r) => r.cost ?? 0);
-		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Expenses (${items.length}) — ${this.formatBucketed(totals)}` });
 
-		for (const exp of items) {
-			const row = list.createDiv({ cls: "companion-list-row" });
-			row.toggleClass("is-selected", this.selection.has(exp.file.path));
-			row.oncontextmenu = (e) =>
-				showDeleteMenu(
-					this.app,
-					e,
-					exp.file,
-					this.selectedFiles(),
-					this.settings.confirmBeforeDelete,
-					() => this.afterDelete(),
-					() => this.openEditor(exp),
-					() => {
+		this.renderSection(parent, "expenses", items, {
+			titleText: "Expenses",
+			totalText: this.formatBucketed(totals),
+			emptyText: "No expenses yet.",
+			searchText: (r) => r.title,
+			sortComparators: REMINDER_COMPARATORS,
+			renderRow: (list, exp) => {
+				const row = list.createDiv({ cls: "companion-list-row" });
+				row.toggleClass("is-selected", this.selection.has(exp.file.path));
+				row.oncontextmenu = (e) =>
+					showDeleteMenu(
+						this.app,
+						e,
+						exp.file,
+						this.selectedFiles(),
+						this.settings.confirmBeforeDelete,
+						() => this.afterDelete(),
+						() => this.openEditor(exp),
+						() => {
+							this.selection.toggle(exp.file.path);
+							this.render();
+						},
+						() => {
+							this.selection.clear();
+							this.render();
+						}
+					);
+
+				row.createDiv({
+					cls: "companion-list-row-date",
+					text: exp.date ? formatDisplayShortDate(exp.date) : "No date",
+				});
+				if (exp.date && exp.date < todayStr) row.addClass("companion-reminder-overdue");
+
+				const title = row.createDiv({ cls: "companion-list-row-title", text: exp.title });
+				makeOpenable(this.app, title, exp.file, {
+					onToggleSelect: () => {
 						this.selection.toggle(exp.file.path);
 						this.render();
 					},
-					() => {
-						this.selection.clear();
-						this.render();
-					}
-				);
+					isSelecting: () => this.selection.size > 0,
+				});
 
-			row.createDiv({
-				cls: "companion-list-row-date",
-				text: exp.date ? formatDisplayShortDate(exp.date) : "No date",
-			});
-			if (exp.date && exp.date < todayStr) row.addClass("companion-reminder-overdue");
-
-			const title = row.createDiv({ cls: "companion-list-row-title", text: exp.title });
-			makeOpenable(this.app, title, exp.file, {
-				onToggleSelect: () => {
-					this.selection.toggle(exp.file.path);
-					this.render();
-				},
-				isSelecting: () => this.selection.size > 0,
-			});
-
-			row.createDiv({ cls: "companion-subscription-cost", text: formatMoney(exp.currency ?? DEFAULT_CURRENCY, exp.cost ?? 0) });
-		}
+				row.createDiv({ cls: "companion-subscription-cost", text: formatMoney(exp.currency ?? DEFAULT_CURRENCY, exp.cost ?? 0) });
+			},
+		});
 	}
 
 	/** Income (Reminders) -- ad hoc or recurring incoming money with no
@@ -411,69 +568,66 @@ export class FinanceView extends ItemView {
 	 * the mirror image of Subscriptions/Expenses above: same Reminder
 	 * shape, `income: true` instead of absent, `recur` optional either
 	 * way. A running total (one-off entries only, same convention as
-	 * Expenses' total -- recurring ones are in the run-rate line above
+	 * Expenses' total -- recurring ones are in the Recurring tile
 	 * instead). No Paid toggle here -- unlike an Invoice, one of these only
 	 * ever gets created once the money's already in hand or is a standing
 	 * expectation, not something invoiced and awaiting payment. */
 	private renderIncomeReminders(parent: HTMLElement): void {
 		const items = this.incomeReminders();
 		const todayStr = formatDate(new Date());
-		const list = parent.createDiv({ cls: "companion-finance-list" });
-
-		if (items.length === 0) {
-			list.createDiv({ cls: "companion-empty", text: "No other income yet." });
-			return;
-		}
-
 		const totals = this.bucketByCurrency(
 			items.filter((r) => !r.recur),
 			(r) => r.cost ?? 0
 		);
-		const totalText = this.formatBucketed(totals);
-		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Income (${items.length})${totalText ? ` — ${totalText}` : ""}` });
 
-		for (const inc of items) {
-			const row = list.createDiv({ cls: "companion-list-row" });
-			row.toggleClass("is-selected", this.selection.has(inc.file.path));
-			row.oncontextmenu = (e) =>
-				showDeleteMenu(
-					this.app,
-					e,
-					inc.file,
-					this.selectedFiles(),
-					this.settings.confirmBeforeDelete,
-					() => this.afterDelete(),
-					() => this.openEditor(inc),
-					() => {
+		this.renderSection(parent, "income", items, {
+			titleText: "Income",
+			totalText: this.formatBucketed(totals),
+			emptyText: "No other income yet.",
+			searchText: (r) => r.title,
+			sortComparators: REMINDER_COMPARATORS,
+			renderRow: (list, inc) => {
+				const row = list.createDiv({ cls: "companion-list-row" });
+				row.toggleClass("is-selected", this.selection.has(inc.file.path));
+				row.oncontextmenu = (e) =>
+					showDeleteMenu(
+						this.app,
+						e,
+						inc.file,
+						this.selectedFiles(),
+						this.settings.confirmBeforeDelete,
+						() => this.afterDelete(),
+						() => this.openEditor(inc),
+						() => {
+							this.selection.toggle(inc.file.path);
+							this.render();
+						},
+						() => {
+							this.selection.clear();
+							this.render();
+						}
+					);
+
+				row.createDiv({
+					cls: "companion-list-row-date",
+					text: inc.date ? formatDisplayShortDate(inc.date) : "No date",
+				});
+				if (inc.date && inc.date < todayStr) row.addClass("companion-reminder-overdue");
+
+				const title = row.createDiv({ cls: "companion-list-row-title", text: inc.title });
+				makeOpenable(this.app, title, inc.file, {
+					onToggleSelect: () => {
 						this.selection.toggle(inc.file.path);
 						this.render();
 					},
-					() => {
-						this.selection.clear();
-						this.render();
-					}
-				);
+					isSelecting: () => this.selection.size > 0,
+				});
 
-			row.createDiv({
-				cls: "companion-list-row-date",
-				text: inc.date ? formatDisplayShortDate(inc.date) : "No date",
-			});
-			if (inc.date && inc.date < todayStr) row.addClass("companion-reminder-overdue");
-
-			const title = row.createDiv({ cls: "companion-list-row-title", text: inc.title });
-			makeOpenable(this.app, title, inc.file, {
-				onToggleSelect: () => {
-					this.selection.toggle(inc.file.path);
-					this.render();
-				},
-				isSelecting: () => this.selection.size > 0,
-			});
-
-			const amount = formatMoney(inc.currency ?? DEFAULT_CURRENCY, inc.cost ?? 0);
-			const costText = inc.recur ? `${amount}/${periodSuffix(inc.recur)}` : amount;
-			row.createDiv({ cls: "companion-subscription-cost", text: costText });
-		}
+				const amount = formatMoney(inc.currency ?? DEFAULT_CURRENCY, inc.cost ?? 0);
+				const costText = inc.recur ? `${amount}/${periodSuffix(inc.recur)}` : amount;
+				row.createDiv({ cls: "companion-subscription-cost", text: costText });
+			},
+		});
 	}
 
 	/** Invoiced income -- every invoice ever generated (see getInvoices in
@@ -481,61 +635,57 @@ export class FinanceView extends ItemView {
 	 * client can be billed in a different currency from another and the two
 	 * shouldn't be merged into one misleading total. The headline total is
 	 * every invoice ever raised, invoiced not collected, same as always --
-	 * but each row also carries its own `paid` flag now (see
-	 * setInvoicePaid in data.ts), and the line under the total splits out
-	 * how much of it has actually come in. Otherwise still read-only: rows
-	 * open the invoice note itself, and creating or amending an invoice's
-	 * own content goes through the dedicated Invoice Create Procedure, not
-	 * this view -- Paid is the one thing this view itself writes. */
+	 * but each row also carries its own `paid` flag (see setInvoicePaid in
+	 * data.ts), and a subtitle line shows how much of it has actually come
+	 * in, staying visible even while the section's folded. Otherwise still
+	 * read-only: rows open the invoice note itself, and creating or
+	 * amending an invoice's own content goes through the dedicated Invoice
+	 * Create Procedure, not this view -- Paid is the one thing this view
+	 * itself writes. */
 	private renderIncome(parent: HTMLElement): void {
 		const items = this.invoices;
-		const list = parent.createDiv({ cls: "companion-finance-list" });
-
-		if (items.length === 0) {
-			list.createDiv({ cls: "companion-empty", text: "No invoices yet." });
-			return;
-		}
-
 		const { total: totals, paid: paidTotals } = this.invoiceTotals();
 		const totalText = this.formatBucketed(totals);
 		const paidText = this.formatBucketed(paidTotals);
 
-		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Invoiced (${items.length})${totalText ? ` — ${totalText} invoiced` : ""}` });
-		if (paidText) {
-			list.createDiv({ cls: "companion-empty", text: `${paidText} paid so far` });
-		}
+		this.renderSection(parent, "invoiced", items, {
+			titleText: "Invoiced",
+			totalText: totalText ? `${totalText} invoiced` : "",
+			subtitleText: paidText ? `${paidText} paid so far` : undefined,
+			emptyText: "No invoices yet.",
+			searchText: (inv) => inv.client,
+			sortComparators: INVOICE_COMPARATORS,
+			renderRow: (list, inv) => {
+				const row = list.createDiv({ cls: "companion-list-row" });
+				row.toggleClass("companion-invoice-row-paid", inv.paid);
 
-		for (const inv of items) {
-			const row = list.createDiv({ cls: "companion-list-row" });
-			row.toggleClass("companion-invoice-row-paid", inv.paid);
+				row.createDiv({
+					cls: "companion-list-row-date",
+					text: inv.date ? formatDisplayShortDate(inv.date) : "No date",
+				});
 
-			row.createDiv({
-				cls: "companion-list-row-date",
-				text: inv.date ? formatDisplayShortDate(inv.date) : "No date",
-			});
+				const title = row.createDiv({ cls: "companion-list-row-title", text: inv.client });
+				makeOpenable(this.app, title, inv.file);
 
-			const title = row.createDiv({ cls: "companion-list-row-title", text: inv.client });
-			makeOpenable(this.app, title, inv.file);
+				row.createDiv({
+					cls: "companion-subscription-cost",
+					text: inv.amount != null ? `${inv.currencySymbol}${inv.amount.toFixed(2)}` : "—",
+				});
 
-			row.createDiv({
-				cls: "companion-subscription-cost",
-				text: inv.amount != null ? `${inv.currencySymbol}${inv.amount.toFixed(2)}` : "—",
-			});
-
-			const paidBtn = row.createEl("button", {
-				cls: "companion-icon-btn",
-				attr: { "aria-label": inv.paid ? "Mark unpaid" : "Mark paid" },
-			});
-			paidBtn.toggleClass("companion-invoice-paid-btn-active", inv.paid);
-			setIcon(paidBtn, inv.paid ? "check-circle" : "circle");
-			paidBtn.onclick = () => {
-				setInvoicePaid(this.app, inv.file, !inv.paid).then(
-					() => void this.refresh(),
-					(err: Error) => new Notice(err.message)
-				);
-			};
-		}
+				const paidBtn = row.createEl("button", {
+					cls: "companion-icon-btn",
+					attr: { "aria-label": inv.paid ? "Mark unpaid" : "Mark paid" },
+				});
+				paidBtn.toggleClass("companion-invoice-paid-btn-active", inv.paid);
+				setIcon(paidBtn, inv.paid ? "check-circle" : "circle");
+				paidBtn.onclick = () => {
+					setInvoicePaid(this.app, inv.file, !inv.paid).then(
+						() => void this.refresh(),
+						(err: Error) => new Notice(err.message)
+					);
+				};
+			},
+		});
 	}
 
 	/** Opens the same shared New item modal as the Calendar's own "+", but
@@ -631,6 +781,54 @@ function periodSuffix(kind: RecurKind): string {
 	return "2yr";
 }
 
-function byDate(a: CompanionReminder, b: CompanionReminder): number {
+// Structural on `date` alone so the same comparator sorts both
+// CompanionReminder and CompanionInvoice -- both shapes carry a
+// `date: string | null` field, and nothing else about either type matters
+// here. Ascending (oldest/undated first); callers wanting newest-first
+// flip the arguments rather than negating the result, so undated items
+// ("" sorts first) land predictably at whichever end "oldest" means for
+// that direction.
+function byDate(a: { date: string | null }, b: { date: string | null }): number {
 	return (a.date ?? "").localeCompare(b.date ?? "");
+}
+
+const REMINDER_COMPARATORS: Record<SortKey, (a: CompanionReminder, b: CompanionReminder) => number> = {
+	"date-desc": (a, b) => byDate(b, a),
+	"date-asc": (a, b) => byDate(a, b),
+	"amount-desc": (a, b) => (b.cost ?? 0) - (a.cost ?? 0),
+	"amount-asc": (a, b) => (a.cost ?? 0) - (b.cost ?? 0),
+	"title-asc": (a, b) => a.title.localeCompare(b.title),
+	"title-desc": (a, b) => b.title.localeCompare(a.title),
+};
+
+const INVOICE_COMPARATORS: Record<SortKey, (a: CompanionInvoice, b: CompanionInvoice) => number> = {
+	"date-desc": (a, b) => byDate(b, a),
+	"date-asc": (a, b) => byDate(a, b),
+	"amount-desc": (a, b) => (b.amount ?? 0) - (a.amount ?? 0),
+	"amount-asc": (a, b) => (a.amount ?? 0) - (b.amount ?? 0),
+	"title-asc": (a, b) => a.client.localeCompare(b.client),
+	"title-desc": (a, b) => b.client.localeCompare(a.client),
+};
+
+/** A stat tile's value colours green/red only when its sign is
+ * meaningful (a net figure) -- never used for a plain total, where colour
+ * would just be noise. */
+function toneFor(net: number): "positive" | "negative" | "neutral" {
+	if (net > 0) return "positive";
+	if (net < 0) return "negative";
+	return "neutral";
+}
+
+function addTile(grid: HTMLElement, label: string, value: string, tone: "positive" | "negative" | "neutral" = "neutral"): void {
+	const tile = grid.createDiv({ cls: "companion-finance-tile" });
+	tile.createDiv({ cls: "companion-finance-tile-label", text: label });
+	const valueEl = tile.createDiv({ cls: "companion-finance-tile-value", text: value });
+	if (tone === "positive") valueEl.addClass("companion-finance-tile-positive");
+	if (tone === "negative") valueEl.addClass("companion-finance-tile-negative");
+}
+
+function withoutCode(totals: Map<string, number>, code: string): Map<string, number> {
+	const copy = new Map(totals);
+	copy.delete(code);
+	return copy;
 }

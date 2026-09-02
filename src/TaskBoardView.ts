@@ -15,14 +15,12 @@ export const VIEW_TYPE_TASKS = "companion-task-board-view";
 const DRAG_MIME = "application/x-companion-task-path";
 
 type Mode = "board" | "list";
-type SortBy = "date" | "title";
-type SortDir = "asc" | "desc";
+type SortKey = "date-asc" | "date-desc" | "title-asc" | "title-desc";
 
 export class TaskBoardView extends ItemView {
 	private tasks: CompanionTask[] = [];
 	private mode: Mode = "board";
-	private sortBy: SortBy = "date";
-	private sortDir: SortDir = "asc";
+	private sortKey: SortKey = "date-asc";
 	private collapsed: Set<TaskStatus> = new Set();
 	private creatingTask = false;
 	private selection = new Selection();
@@ -136,21 +134,13 @@ export class TaskBoardView extends ItemView {
 		};
 
 		const sortSelect = controls.createEl("select", { cls: "companion-sort-select" });
-		sortSelect.createEl("option", { text: "Sort: Due date", attr: { value: "date" } });
-		sortSelect.createEl("option", { text: "Sort: Title", attr: { value: "title" } });
-		sortSelect.value = this.sortBy;
+		sortSelect.createEl("option", { text: "Sort: Due date (soonest first)", attr: { value: "date-asc" } });
+		sortSelect.createEl("option", { text: "Sort: Due date (latest first)", attr: { value: "date-desc" } });
+		sortSelect.createEl("option", { text: "Sort: Title (A–Z)", attr: { value: "title-asc" } });
+		sortSelect.createEl("option", { text: "Sort: Title (Z–A)", attr: { value: "title-desc" } });
+		sortSelect.value = this.sortKey;
 		sortSelect.onchange = () => {
-			this.sortBy = sortSelect.value as SortBy;
-			this.render();
-		};
-
-		const sortDirBtn = controls.createEl("button", {
-			cls: "companion-icon-btn",
-			attr: { "aria-label": this.sortDir === "asc" ? "Ascending -- click for descending" : "Descending -- click for ascending" },
-		});
-		setIcon(sortDirBtn, this.sortDir === "asc" ? "arrow-up-narrow-wide" : "arrow-down-wide-narrow");
-		sortDirBtn.onclick = () => {
-			this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
+			this.sortKey = sortSelect.value as SortKey;
 			this.render();
 		};
 
@@ -426,8 +416,8 @@ export class TaskBoardView extends ItemView {
 	/** Combines the sort-by field with the ascending/descending toggle into
 	 * one comparator, so callers don't juggle both separately. */
 	private sortComparator(): (a: CompanionTask, b: CompanionTask) => number {
-		const base = this.sortBy === "title" ? byTitle : byDateThenTitle;
-		const dir = this.sortDir === "desc" ? -1 : 1;
+		const base = this.sortKey.startsWith("title") ? byTitle : byDateThenTitle;
+		const dir = this.sortKey.endsWith("desc") ? -1 : 1;
 		return (a, b) => dir * base(a, b);
 	}
 

@@ -14,14 +14,12 @@ export const VIEW_TYPE_REMINDERS = "companion-reminders-view";
  * mirrors due_reminders.py's own threshold exactly (date <= today) so the
  * view and the script never disagree about what counts as due.
  */
-type SortBy = "date" | "title";
-type SortDir = "asc" | "desc";
+type SortKey = "date-asc" | "date-desc" | "title-asc" | "title-desc";
 
 export class RemindersView extends ItemView {
 	private reminders: CompanionReminder[] = [];
 	private creating = false;
-	private sortBy: SortBy = "date";
-	private sortDir: SortDir = "asc";
+	private sortKey: SortKey = "date-asc";
 	private selection = new Selection();
 	private filterText = "";
 
@@ -79,8 +77,8 @@ export class RemindersView extends ItemView {
 	/** Combines the sort-by field with the ascending/descending toggle into
 	 * one comparator, so callers don't juggle both separately. */
 	private sortComparator(): (a: CompanionReminder, b: CompanionReminder) => number {
-		const base = this.sortBy === "title" ? byTitle : byDate;
-		const dir = this.sortDir === "desc" ? -1 : 1;
+		const base = this.sortKey.startsWith("title") ? byTitle : byDate;
+		const dir = this.sortKey.endsWith("desc") ? -1 : 1;
 		return (a, b) => dir * base(a, b);
 	}
 
@@ -126,21 +124,13 @@ export class RemindersView extends ItemView {
 		};
 
 		const sortSelect = controls.createEl("select", { cls: "companion-sort-select" });
-		sortSelect.createEl("option", { text: "Sort: Due date", attr: { value: "date" } });
-		sortSelect.createEl("option", { text: "Sort: Title", attr: { value: "title" } });
-		sortSelect.value = this.sortBy;
+		sortSelect.createEl("option", { text: "Sort: Due date (soonest first)", attr: { value: "date-asc" } });
+		sortSelect.createEl("option", { text: "Sort: Due date (latest first)", attr: { value: "date-desc" } });
+		sortSelect.createEl("option", { text: "Sort: Title (A–Z)", attr: { value: "title-asc" } });
+		sortSelect.createEl("option", { text: "Sort: Title (Z–A)", attr: { value: "title-desc" } });
+		sortSelect.value = this.sortKey;
 		sortSelect.onchange = () => {
-			this.sortBy = sortSelect.value as SortBy;
-			this.render();
-		};
-
-		const sortDirBtn = controls.createEl("button", {
-			cls: "companion-icon-btn",
-			attr: { "aria-label": this.sortDir === "asc" ? "Ascending -- click for descending" : "Descending -- click for ascending" },
-		});
-		setIcon(sortDirBtn, this.sortDir === "asc" ? "arrow-up-narrow-wide" : "arrow-down-wide-narrow");
-		sortDirBtn.onclick = () => {
-			this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
+			this.sortKey = sortSelect.value as SortKey;
 			this.render();
 		};
 
@@ -213,7 +203,7 @@ export class RemindersView extends ItemView {
 		const sortFn = this.sortComparator();
 		const due = visible.filter((r) => r.date && r.date <= todayStr).sort(sortFn);
 		const upcoming = visible.filter((r) => r.date && r.date > todayStr).sort(sortFn);
-		const undated = visible.filter((r) => !r.date).sort(this.sortDir === "desc" ? (a, b) => byTitle(b, a) : byTitle);
+		const undated = visible.filter((r) => !r.date).sort(this.sortKey.endsWith("desc") ? (a, b) => byTitle(b, a) : byTitle);
 
 		this.renderGroup(list, "Due", due, todayStr);
 		this.renderGroup(list, "Upcoming", upcoming, todayStr);
