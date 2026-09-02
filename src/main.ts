@@ -147,7 +147,8 @@ export default class CompanionPlugin extends Plugin {
 						result.cost,
 						result.invoiceReminder,
 						result.remind,
-						result.income
+						result.income,
+						result.currency
 					).then(
 						() => this.refreshOpenViews(),
 						(err: Error) => new Notice(err.message)

@@ -323,6 +323,7 @@ export class RemindersView extends ItemView {
 				recur: reminder.recur,
 				remind: reminder.remind,
 				cost: reminder.cost,
+				currency: reminder.currency,
 				invoiceReminder: reminder.invoiceReminder,
 				income: reminder.income,
 			},
@@ -337,6 +338,7 @@ export class RemindersView extends ItemView {
 					recur: result.recur,
 					remind: result.remind,
 					cost: result.cost,
+					currency: result.currency,
 					invoiceReminder: result.invoiceReminder,
 					income: result.income,
 				}).then(

@@ -1,6 +1,7 @@
 import { App, Modal } from "obsidian";
 import { getClientNames, recurLabel, remindLeadLabel } from "./data";
 import type { CompanionEventType, QuickCreateType, RecurKind, RemindLead } from "./data";
+import { DEFAULT_CURRENCY, currencyLabel, sortedCurrencies } from "./currencies";
 
 const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
 	{ value: "", label: "Never" },
@@ -74,6 +75,7 @@ export interface EventEditorResult {
 	recur: RecurKind | null; // null = doesn't repeat
 	remind: RemindLead | null; // null = no advance reminder
 	cost: number | null; // only meaningful when type === "reminder"; null = not a subscription
+	currency: string; // ISO 4217 -- only meaningful alongside cost; always resolved, defaulting to DEFAULT_CURRENCY
 	invoiceReminder: boolean; // only meaningful when type === "reminder" -- see DropdownValue above
 	income: boolean; // only meaningful when type === "reminder" -- flips the direction from an outgoing cost to incoming money
 }
@@ -88,6 +90,7 @@ export interface EventEditorInitial {
 	recur?: RecurKind; // absent/undefined = doesn't repeat
 	remind?: RemindLead; // absent/undefined = no advance reminder
 	cost?: number; // meaningful only when type === "reminder"
+	currency?: string; // ISO 4217, meaningful only alongside cost; absent = DEFAULT_CURRENCY (an entry from before currencies existed)
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"
 	income?: boolean; // meaningful only when type === "reminder"
 }
@@ -229,11 +232,18 @@ export class EventEditorModal extends Modal {
 		// Event/Task/Post unless editing something that already has a cost
 		// set -- otherwise opening Edit on an Expense through the Calendar/
 		// agenda pencil (rather than Finance's own row) would hide its cost
-		// from view entirely.
+		// from view entirely. The currency dropdown lives in the same row and
+		// follows the same visibility -- see currencies.ts for why every
+		// currency (not just £) is on offer.
 		const costRow = contentEl.createDiv({ cls: "companion-event-editor-recur-row" });
-		costRow.createSpan({ text: "Cost (£/period): " });
+		costRow.createSpan({ text: "Cost: " });
 		const costInput = costRow.createEl("input", { attr: { type: "number", min: "0", step: "0.01", placeholder: "Optional" } });
 		costInput.value = this.initial.cost != null ? String(this.initial.cost) : "";
+		const currencySelect = costRow.createEl("select", { cls: "companion-event-editor-currency" });
+		for (const currency of sortedCurrencies()) {
+			const el = currencySelect.createEl("option", { text: currencyLabel(currency.code), value: currency.code });
+			if (currency.code === (this.initial.currency ?? DEFAULT_CURRENCY)) el.selected = true;
+		}
 		const syncCostVisibility = () => {
 			const currentType = typeSelect?.value as DropdownValue | undefined;
 			const required = currentType === "subscription" || currentType === "expense" || currentType === "income";
@@ -349,6 +359,7 @@ export class EventEditorModal extends Modal {
 				recur: (recurSelect.value || null) as RecurKind | null,
 				remind: (remindSelect.value || null) as RemindLead | null,
 				cost: costInput.value ? Number(costInput.value) : null,
+				currency: currencySelect.value || DEFAULT_CURRENCY,
 				invoiceReminder: selected === "invoiceReminder",
 				income: selected === "income",
 			});

@@ -1,5 +1,6 @@
 import { App, TAbstractFile, TFile } from "obsidian";
 import { formatDMY, formatDate, toMinuteIso } from "./dates";
+import { DEFAULT_CURRENCY } from "./currencies";
 
 // Companion's data layer: reads what's already in the vault via Obsidian's
 // own metadata cache, and — for the task board only — writes a single
@@ -42,6 +43,7 @@ export interface CompanionEvent {
 	recur?: RecurKind; // set when this note is itself a recurring series' anchor
 	remind?: RemindLead; // set when this note wants an advance-notice desktop notification ahead of its own date
 	cost?: number; // GBP, meaningful only when type === "reminder" -- what makes it a subscription
+	currency?: string; // ISO 4217 code, meaningful only when type === "reminder"; absent means DEFAULT_CURRENCY
 	invoiceReminder?: boolean; // meaningful only when type === "reminder" -- shows with the Invoice pill colour on the calendar (see CalendarView's visualType), without being a real Invoice
 	income?: boolean; // meaningful only when type === "reminder" -- flips the calendar/Finance direction from an outgoing cost to incoming money (see visualType's "income" category and CompanionReminder.income below); a Reminder can carry both recur and income, e.g. a monthly payout
 	// Set only on a *projected* occurrence (see getRecurringOccurrences below) --
@@ -228,6 +230,7 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 			cost: type === "reminder" && typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
 			invoiceReminder: type === "reminder" && frontmatter["invoiceReminder"] === true ? true : undefined,
 			income: type === "reminder" && frontmatter["income"] === true ? true : undefined,
+			currency: type === "reminder" && typeof frontmatter["currency"] === "string" ? frontmatter["currency"] : undefined,
 		};
 
 		const bucket = index.get(date);
@@ -446,7 +449,8 @@ function quickCreateFrontmatter(
 	cost?: number | null,
 	invoiceReminder?: boolean,
 	remind?: RemindLead | null,
-	income?: boolean
+	income?: boolean,
+	currency?: string
 ): string {
 	const endLine = endTimeStr ? `end: ${dateStr}T${endTimeStr}\n` : "";
 	const recurLine = recur ? `recur: ${recur}\n` : "";
@@ -472,12 +476,13 @@ function quickCreateFrontmatter(
 	const costLine = cost != null && cost > 0 ? `cost: ${cost}\n` : "";
 	const invoiceReminderLine = invoiceReminder ? `invoiceReminder: true\n` : "";
 	const incomeLine = income ? `income: true\n` : "";
+	const currencyLine = cost != null && cost > 0 && currency && currency !== DEFAULT_CURRENCY ? `currency: ${currency}\n` : "";
 	const isSubscription = !!recur && cost != null && cost > 0;
 	const tags = ["reminder"];
 	if (isSubscription) tags.push("subscription");
 	if (income) tags.push("income");
 	const tagsBlock = `tags:\n${tags.map((t) => `  - ${t}\n`).join("")}`;
-	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}${costLine}${invoiceReminderLine}${incomeLine}${tagsBlock}---\n\n`;
+	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}${costLine}${currencyLine}${invoiceReminderLine}${incomeLine}${tagsBlock}---\n\n`;
 }
 
 /** A minimal "Post idea" capture -- reachable from the exact same shared
@@ -539,7 +544,8 @@ export async function createQuickNote(
 	cost?: number | null,
 	invoiceReminder?: boolean,
 	remind?: RemindLead | null,
-	income?: boolean
+	income?: boolean,
+	currency?: string
 ): Promise<TFile> {
 	if (type === "post") return createPostIdea(app, title, dateStr);
 
@@ -552,7 +558,7 @@ export async function createQuickNote(
 	}
 	return app.vault.create(
 		path,
-		quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder, remind, income)
+		quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder, remind, income, currency)
 	);
 }
 
@@ -581,6 +587,7 @@ export interface EventEditFields {
 	recur?: RecurKind | null; // null/undefined clears any existing recurrence (and its exceptions)
 	remind?: RemindLead | null; // null/undefined clears any existing advance reminder
 	cost?: number | null; // meaningful only when type === "reminder"; null/undefined clears it
+	currency?: string | null; // meaningful only when type === "reminder"; null/undefined clears it
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"; falsy clears it
 	income?: boolean; // meaningful only when type === "reminder"; falsy clears it
 }
@@ -653,6 +660,15 @@ export async function applyEventEdit(app: App, file: TFile, oldType: CompanionEv
 		else delete fm["remind"];
 		if (fields.type === "reminder" && fields.cost != null && fields.cost > 0) fm["cost"] = fields.cost;
 		else delete fm["cost"];
+		if (
+			fields.type === "reminder" &&
+			fields.cost != null &&
+			fields.cost > 0 &&
+			fields.currency &&
+			fields.currency !== DEFAULT_CURRENCY
+		)
+			fm["currency"] = fields.currency;
+		else delete fm["currency"];
 		if (fields.type === "reminder" && fields.invoiceReminder) fm["invoiceReminder"] = true;
 		else delete fm["invoiceReminder"];
 		if (fields.type === "reminder" && fields.income) fm["income"] = true;
@@ -972,6 +988,7 @@ export interface CompanionReminder {
 	recur?: RecurKind;
 	remind?: RemindLead; // see CompanionEvent.remind -- carried here too so editing a reminder from the Reminders/Finance views doesn't silently clear it
 	cost?: number; // GBP, only meaningful alongside recur
+	currency?: string; // ISO 4217 code, only meaningful alongside cost; absent means DEFAULT_CURRENCY
 	invoiceReminder?: boolean; // see CompanionEvent.invoiceReminder -- carried here too so editing a reminder from the Reminders/Finance views doesn't silently clear the flag
 	income?: boolean; // see CompanionEvent.income -- same reason, carried through so an edit never silently clears it
 }
@@ -995,6 +1012,7 @@ export function getReminders(app: App): CompanionReminder[] {
 			cost: typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
 			invoiceReminder: frontmatter["invoiceReminder"] === true ? true : undefined,
 			income: frontmatter["income"] === true ? true : undefined,
+			currency: typeof frontmatter["currency"] === "string" ? frontmatter["currency"] : undefined,
 		});
 	}
 
@@ -1559,11 +1577,11 @@ export interface CompanionInvoice {
 	client: string;
 	date: string | null; // YYYY-MM-DD, the invoice's issue date
 	amount: number | null; // null if a total couldn't be parsed from the body
-	currencySymbol: string; // "£" or "$" -- "" if amount is null
+	currencySymbol: string; // bare symbol ("£"/"€"/"¥") or "CODE " prefix for other currencies -- "" if amount is null
 	paid: boolean; // `paid: true` in frontmatter -- see setInvoicePaid() below. Absent/false = not yet paid.
 }
 
-const TOTAL_DUE_RE = /\*\*Total Due:\*\*\s*([£$])([\d,]+\.\d{2})/;
+const TOTAL_DUE_RE = /\*\*Total Due:\*\*\s*(\S*?)\s*([\d,]+\.\d{2})/;
 
 /** Every invoice ever generated, newest first -- backs the Finance tab's
  * Income section. Client and date come from frontmatter (falling back to
@@ -1657,7 +1675,7 @@ export interface GenerateInvoiceParams {
 	billing: ClientBillingInfo;
 	myDetails: InvoiceHeaderInfo;
 	payment: InvoicePaymentInfo;
-	currencySymbol: string; // "£" or "$" -- chosen per invoice, not stored on rate/amount fields anywhere
+	currencySymbol: string; // bare symbol ("£"/"€"/"¥") or "CODE " prefix -- chosen per invoice, not stored on rate/amount fields anywhere
 }
 
 /**

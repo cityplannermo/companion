@@ -69,7 +69,10 @@
 	border: none;
 	color: var(--text-muted);
 	cursor: pointer;
-	padding: 8px;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	flex-shrink: 0;
 	border-radius: 50%;
 }
 
@@ -745,11 +748,14 @@
 .companion-item-rename-btn {
 	display: flex;
 	align-items: center;
+	justify-content: center;
 	color: var(--text-faint);
 	cursor: pointer;
 	flex-shrink: 0;
 	margin-left: 4px;
-	padding: 8px;
+	width: 30px;
+	height: 30px;
+	padding: 0;
 	border-radius: 50%;
 	background: transparent;
 }

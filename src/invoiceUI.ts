@@ -15,6 +15,7 @@ import {
 } from "./data";
 import type { CompanionSettings } from "./settings";
 import { addDays, formatDate, parseDate } from "./dates";
+import { DEFAULT_CURRENCY, currencyLabel, invoicePrefix, sortedCurrencies } from "./currencies";
 
 const NEW_CLIENT_VALUE = "__new__";
 
@@ -47,6 +48,7 @@ export class InvoiceGeneratorModal extends Modal {
 	private rate: number | null = null;
 	private lineItems: InvoiceLineItem[] = [];
 	private packages: PackageDefinition[] = [];
+	private currencyCode = DEFAULT_CURRENCY;
 	private currencySymbol = "£";
 
 	constructor(
@@ -128,9 +130,10 @@ export class InvoiceGeneratorModal extends Modal {
 		const currencyRow = contentEl.createDiv({ cls: "companion-invoice-field-row" });
 		currencyRow.createEl("label", { text: "Currency" });
 		const currencySelect = currencyRow.createEl("select");
-		currencySelect.createEl("option", { text: "£ (GBP)", value: "£" });
-		currencySelect.createEl("option", { text: "$ (USD)", value: "$" });
-		currencySelect.value = this.currencySymbol;
+		for (const currency of sortedCurrencies()) {
+			currencySelect.createEl("option", { text: currencyLabel(currency.code), value: currency.code });
+		}
+		currencySelect.value = this.currencyCode;
 
 		const note = contentEl.createDiv({ cls: "companion-event-editor-type-locked" });
 
@@ -159,7 +162,7 @@ export class InvoiceGeneratorModal extends Modal {
 			if (previous && !startInput.value) {
 				startInput.value = formatDate(addDays(parseDate(previous.dateStr), 1));
 			}
-			const rateNote = this.rate == null ? "No hourly rate set -- tracked-time rows will need a rate typed in per line." : `Rate: ${currencySelect.value}${this.rate}/hr.`;
+			const rateNote = this.rate == null ? "No hourly rate set -- tracked-time rows will need a rate typed in per line." : `Rate: ${invoicePrefix(currencySelect.value)}${this.rate}/hr.`;
 			const prevNote = previous ? ` Last invoice: #${String(previous.number).padStart(3, "0")}, ${previous.dateStr}.` : "";
 			note.setText(rateNote + prevNote);
 		};
@@ -174,7 +177,8 @@ export class InvoiceGeneratorModal extends Modal {
 		next.onclick = () => {
 			this.startStr = startInput.value;
 			this.endStr = endInput.value || formatDate(new Date());
-			this.currencySymbol = currencySelect.value;
+			this.currencyCode = currencySelect.value;
+			this.currencySymbol = invoicePrefix(this.currencyCode);
 			if (this.startStr && this.startStr > this.endStr) {
 				new Notice("The period start is after its end.");
 				return;

@@ -758,7 +758,8 @@ export class CalendarView extends ItemView {
 				result.cost,
 				result.invoiceReminder,
 				result.remind,
-				result.income
+				result.income,
+				result.currency
 			).then(
 				() => this.refresh(),
 				(err: Error) => new Notice(err.message)
@@ -785,6 +786,7 @@ export class CalendarView extends ItemView {
 				recur: ev.recur,
 				remind: ev.remind,
 				cost: ev.cost,
+				currency: ev.currency,
 				invoiceReminder: ev.invoiceReminder,
 				income: ev.income,
 			},
@@ -799,6 +801,7 @@ export class CalendarView extends ItemView {
 					recur: result.recur,
 					remind: result.remind,
 					cost: result.cost,
+					currency: result.currency,
 					invoiceReminder: result.invoiceReminder,
 					income: result.income,
 				}).then(

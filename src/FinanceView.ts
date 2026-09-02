@@ -13,6 +13,7 @@ import {
 import type { RecurKind } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
 import type { DropdownValue } from "./eventEditorUI";
+import { DEFAULT_CURRENCY, codeForInvoiceMarker, formatMoney } from "./currencies";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
@@ -146,78 +147,129 @@ export class FinanceView extends ItemView {
 		addBtn.onclick = () => this.openCreate();
 	}
 
-	/** Every invoice's amount, bucketed by currency symbol -- the running
-	 * total ever raised, and the subset of it actually marked paid. Shared
-	 * by renderIncome() (the Invoiced section's own header line) and
-	 * renderOverview() below, so the two can never drift apart. */
+	/** Buckets a list of cost-bearing reminders by currency code (an entry
+	 * with no `currency` field defaults to DEFAULT_CURRENCY -- everything
+	 * written before currencies existed), summing each bucket through
+	 * `amountFn`. Shared by every per-section total below and by
+	 * renderOverview()/renderMonthlyRunRate(), so a Subscription in USD is
+	 * never silently added to one in GBP -- Mo's own "all currencies, since
+	 * this is a public tool" request from 2 September 2026. */
+	private bucketByCurrency(items: CompanionReminder[], amountFn: (r: CompanionReminder) => number): Map<string, number> {
+		const totals = new Map<string, number>();
+		for (const r of items) {
+			const code = r.currency ?? DEFAULT_CURRENCY;
+			totals.set(code, (totals.get(code) ?? 0) + amountFn(r));
+		}
+		return totals;
+	}
+
+	/** Renders a currency-bucketed total as e.g. "£45.00/month + USD
+	 * 20.00/month" -- DEFAULT_CURRENCY first (Mo's own), then every other
+	 * currency present, alphabetically by code. Zero-amount buckets are
+	 * dropped. "" when there's nothing to show at all. */
+	private formatBucketed(totals: Map<string, number>, suffix = ""): string {
+		const entries = [...totals.entries()].filter(([, amt]) => amt !== 0);
+		entries.sort(([a], [b]) => (a === DEFAULT_CURRENCY ? -1 : b === DEFAULT_CURRENCY ? 1 : a.localeCompare(b)));
+		return entries.map(([code, amt]) => `${formatMoney(code, amt)}${suffix}`).join(" + ");
+	}
+
+	/** Every invoice's amount, bucketed by currency code -- the running
+	 * total ever raised, and the subset of it actually marked paid. An
+	 * invoice's own `currencySymbol` is whatever marker was actually
+	 * written into its body (a bare symbol for GBP/EUR/JPY, "CODE " for
+	 * everything else -- see currencies.ts), so codeForInvoiceMarker()
+	 * recovers the code before bucketing, the same way bucketByCurrency()
+	 * above does for Reminders -- otherwise a GBP invoice ("£") and a GBP
+	 * one-off Income entry ("GBP") would land in two different buckets in
+	 * renderOverview() below. Shared by renderIncome() (the Invoiced
+	 * section's own header line) and renderOverview() below, so the two can
+	 * never drift apart. */
 	private invoiceTotals(): { total: Map<string, number>; paid: Map<string, number> } {
 		const total = new Map<string, number>();
 		const paid = new Map<string, number>();
 		for (const inv of this.invoices) {
 			if (inv.amount == null) continue;
-			const key = inv.currencySymbol || "£";
-			total.set(key, (total.get(key) ?? 0) + inv.amount);
-			if (inv.paid) paid.set(key, (paid.get(key) ?? 0) + inv.amount);
+			const code = codeForInvoiceMarker(inv.currencySymbol || "£");
+			total.set(code, (total.get(code) ?? 0) + inv.amount);
+			if (inv.paid) paid.set(code, (paid.get(code) ?? 0) + inv.amount);
 		}
 		return { total, paid };
 	}
 
 	/** "To date" -- money actually in hand (paid invoices + one-off Income)
-	 * against money actually out (one-off Expenses), netted. Deliberately
-	 * excludes recurring Subscriptions/Income: Companion only tracks a
-	 * recurring item's *next* due date, not how many periods have actually
-	 * elapsed and been paid since it started, so a running total for those
-	 * would be a guess dressed up as a fact -- the Recurring run-rate line
-	 * below covers them instead, as a forward-looking monthly figure, not a
-	 * total. £ only for Expenses/Income (see CompanionEvent.income) -- a $
-	 * total from invoices, if there is one, is reported alongside rather
-	 * than merged into a total that would mean nothing without an exchange
-	 * rate. Hidden entirely when there's nothing to report at all. */
+	 * against money actually out (one-off Expenses), netted per currency.
+	 * Deliberately excludes recurring Subscriptions/Income: Companion only
+	 * tracks a recurring item's *next* due date, not how many periods have
+	 * actually elapsed and been paid since it started, so a running total
+	 * for those would be a guess dressed up as a fact -- the Recurring
+	 * run-rate line below covers them instead, as a forward-looking monthly
+	 * figure, not a total. Each currency present gets its own in/out/net --
+	 * never merged into one number across currencies, since that would need
+	 * an exchange rate Companion doesn't have. Hidden entirely when there's
+	 * nothing to report at all. */
 	private renderOverview(parent: HTMLElement): void {
 		const { paid: paidInvoices } = this.invoiceTotals();
-		const paidGBP = paidInvoices.get("£") ?? 0;
-		const otherPaid = [...paidInvoices.entries()].filter(([sym]) => sym !== "£");
+		const oneOffIncome = this.bucketByCurrency(
+			this.incomeReminders().filter((r) => !r.recur),
+			(r) => r.cost ?? 0
+		);
+		const oneOffExpenses = this.bucketByCurrency(this.expenses(), (r) => r.cost ?? 0);
 
-		const oneOffIncome = this.incomeReminders()
-			.filter((r) => !r.recur)
-			.reduce((sum, r) => sum + (r.cost ?? 0), 0);
-		const oneOffExpenses = this.expenses().reduce((sum, r) => sum + (r.cost ?? 0), 0);
-		const income = paidGBP + oneOffIncome;
+		const inTotals = new Map<string, number>(oneOffIncome);
+		for (const [code, amt] of paidInvoices) inTotals.set(code, (inTotals.get(code) ?? 0) + amt);
 
-		if (income === 0 && oneOffExpenses === 0 && otherPaid.length === 0) return;
+		if (inTotals.size === 0 && oneOffExpenses.size === 0) return;
 
-		const net = income - oneOffExpenses;
-		const netText = net === 0 ? "break-even" : `net £${Math.abs(net).toFixed(2)} ${net > 0 ? "in" : "out"}`;
-		const otherPaidText = otherPaid.length
-			? ` (+ ${otherPaid.map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ")} invoiced, paid)`
-			: "";
+		const currencies = [...new Set([...inTotals.keys(), ...oneOffExpenses.keys()])].sort((a, b) =>
+			a === DEFAULT_CURRENCY ? -1 : b === DEFAULT_CURRENCY ? 1 : a.localeCompare(b)
+		);
+		const lines = currencies.map((code) => {
+			const income = inTotals.get(code) ?? 0;
+			const expense = oneOffExpenses.get(code) ?? 0;
+			const net = income - expense;
+			const netText = net === 0 ? "break-even" : `net ${formatMoney(code, Math.abs(net))} ${net > 0 ? "in" : "out"}`;
+			return `${formatMoney(code, income)} in, ${formatMoney(code, expense)} out — ${netText}`;
+		});
 
 		parent.createDiv({
 			cls: "companion-finance-overview",
-			text: `To date: £${income.toFixed(2)} in, £${oneOffExpenses.toFixed(2)} out — ${netText}${otherPaidText}`,
+			text: `To date: ${lines.join("; ")}`,
 		});
 	}
 
 	/** A one-line "how much moves every month" figure -- Subscriptions'
 	 * monthly-equivalent total against recurring Income's own (both use the
 	 * same monthlyEquivalentCost() normalisation across daily/weekly/
-	 * monthly/yearly/biennial), netted. Deliberately excludes one-off
-	 * Expenses and Income -- those aren't recurring, so they'd distort a
-	 * per-month figure rather than inform it; Income (Invoices) below has
-	 * its own "paid so far" line for actuals. Hidden entirely when there's
-	 * nothing recurring on either side, rather than showing "£0.00". */
+	 * monthly/yearly/biennial), netted per currency. Deliberately excludes
+	 * one-off Expenses and Income -- those aren't recurring, so they'd
+	 * distort a per-month figure rather than inform it; Income (Invoices)
+	 * below has its own "paid so far" line for actuals. Hidden entirely
+	 * when there's nothing recurring on either side, rather than showing
+	 * "£0.00". Nets in and out for a currency only when that currency is
+	 * the only one recurring on either side -- summing two different
+	 * currencies into one net figure would need an exchange rate. */
 	private renderMonthlyRunRate(parent: HTMLElement): void {
-		const outgoing = this.subscriptions().reduce((sum, r) => sum + monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind), 0);
-		const incoming = this.incomeReminders()
-			.filter((r) => !!r.recur)
-			.reduce((sum, r) => sum + monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind), 0);
-		if (outgoing === 0 && incoming === 0) return;
+		const outgoing = this.bucketByCurrency(this.subscriptions(), (r) => monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind));
+		const incoming = this.bucketByCurrency(
+			this.incomeReminders().filter((r) => !!r.recur),
+			(r) => monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind)
+		);
+		if (outgoing.size === 0 && incoming.size === 0) return;
 
-		const net = incoming - outgoing;
-		const netText = net === 0 ? "break-even" : `net £${Math.abs(net).toFixed(2)}/month ${net > 0 ? "in" : "out"}`;
+		const inText = this.formatBucketed(incoming, "/month") || `${formatMoney(DEFAULT_CURRENCY, 0)}/month`;
+		const outText = this.formatBucketed(outgoing, "/month") || `${formatMoney(DEFAULT_CURRENCY, 0)}/month`;
+
+		const currencies = new Set([...outgoing.keys(), ...incoming.keys()]);
+		let netText = "";
+		if (currencies.size <= 1) {
+			const code = [...currencies][0] ?? DEFAULT_CURRENCY;
+			const net = (incoming.get(code) ?? 0) - (outgoing.get(code) ?? 0);
+			netText = net === 0 ? " — break-even" : ` — net ${formatMoney(code, Math.abs(net))}/month ${net > 0 ? "in" : "out"}`;
+		}
+
 		parent.createDiv({
 			cls: "companion-finance-run-rate",
-			text: `Recurring: £${incoming.toFixed(2)}/month in, £${outgoing.toFixed(2)}/month out — ${netText}`,
+			text: `Recurring: ${inText} in, ${outText} out${netText}`,
 		});
 	}
 
@@ -237,9 +289,9 @@ export class FinanceView extends ItemView {
 			return;
 		}
 
-		const total = items.reduce((sum, r) => sum + monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind), 0);
+		const totals = this.bucketByCurrency(items, (r) => monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind));
 		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Subscriptions (${items.length}) — £${total.toFixed(2)}/month` });
+		groupTitle.createSpan({ text: `Subscriptions (${items.length}) — ${this.formatBucketed(totals, "/month")}` });
 
 		for (const sub of items) {
 			const row = list.createDiv({ cls: "companion-list-row" });
@@ -280,7 +332,7 @@ export class FinanceView extends ItemView {
 
 			row.createDiv({
 				cls: "companion-subscription-cost",
-				text: `£${(sub.cost ?? 0).toFixed(2)}/${periodSuffix(sub.recur as RecurKind)}`,
+				text: `${formatMoney(sub.currency ?? DEFAULT_CURRENCY, sub.cost ?? 0)}/${periodSuffix(sub.recur as RecurKind)}`,
 			});
 
 			const renew = row.createSpan({ cls: "companion-item-rename-btn", attr: { "aria-label": "Renew -- push the due date forward one period" } });
@@ -309,9 +361,9 @@ export class FinanceView extends ItemView {
 			return;
 		}
 
-		const total = items.reduce((sum, r) => sum + (r.cost ?? 0), 0);
+		const totals = this.bucketByCurrency(items, (r) => r.cost ?? 0);
 		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Expenses (${items.length}) — £${total.toFixed(2)}` });
+		groupTitle.createSpan({ text: `Expenses (${items.length}) — ${this.formatBucketed(totals)}` });
 
 		for (const exp of items) {
 			const row = list.createDiv({ cls: "companion-list-row" });
@@ -350,7 +402,7 @@ export class FinanceView extends ItemView {
 				isSelecting: () => this.selection.size > 0,
 			});
 
-			row.createDiv({ cls: "companion-subscription-cost", text: `£${(exp.cost ?? 0).toFixed(2)}` });
+			row.createDiv({ cls: "companion-subscription-cost", text: formatMoney(exp.currency ?? DEFAULT_CURRENCY, exp.cost ?? 0) });
 		}
 	}
 
@@ -373,9 +425,13 @@ export class FinanceView extends ItemView {
 			return;
 		}
 
-		const total = items.filter((r) => !r.recur).reduce((sum, r) => sum + (r.cost ?? 0), 0);
+		const totals = this.bucketByCurrency(
+			items.filter((r) => !r.recur),
+			(r) => r.cost ?? 0
+		);
+		const totalText = this.formatBucketed(totals);
 		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Income (${items.length})${total ? ` — £${total.toFixed(2)}` : ""}` });
+		groupTitle.createSpan({ text: `Income (${items.length})${totalText ? ` — ${totalText}` : ""}` });
 
 		for (const inc of items) {
 			const row = list.createDiv({ cls: "companion-list-row" });
@@ -414,22 +470,23 @@ export class FinanceView extends ItemView {
 				isSelecting: () => this.selection.size > 0,
 			});
 
-			const costText = inc.recur ? `£${(inc.cost ?? 0).toFixed(2)}/${periodSuffix(inc.recur)}` : `£${(inc.cost ?? 0).toFixed(2)}`;
+			const amount = formatMoney(inc.currency ?? DEFAULT_CURRENCY, inc.cost ?? 0);
+			const costText = inc.recur ? `${amount}/${periodSuffix(inc.recur)}` : amount;
 			row.createDiv({ cls: "companion-subscription-cost", text: costText });
 		}
 	}
 
 	/** Invoiced income -- every invoice ever generated (see getInvoices in
-	 * data.ts), summed per currency symbol since a client can be billed in
-	 * a different currency from another and the two shouldn't be merged
-	 * into one misleading total. The headline total is every invoice ever
-	 * raised, invoiced not collected, same as always -- but each row also
-	 * carries its own `paid` flag now (see setInvoicePaid in data.ts), and
-	 * the line under the total splits out how much of it has actually come
-	 * in. Otherwise still read-only: rows open the invoice note itself, and
-	 * creating or amending an invoice's own content goes through the
-	 * dedicated Invoice Create Procedure, not this view -- Paid is the one
-	 * thing this view itself writes. */
+	 * data.ts), summed per currency (see invoiceTotals() above) since a
+	 * client can be billed in a different currency from another and the two
+	 * shouldn't be merged into one misleading total. The headline total is
+	 * every invoice ever raised, invoiced not collected, same as always --
+	 * but each row also carries its own `paid` flag now (see
+	 * setInvoicePaid in data.ts), and the line under the total splits out
+	 * how much of it has actually come in. Otherwise still read-only: rows
+	 * open the invoice note itself, and creating or amending an invoice's
+	 * own content goes through the dedicated Invoice Create Procedure, not
+	 * this view -- Paid is the one thing this view itself writes. */
 	private renderIncome(parent: HTMLElement): void {
 		const items = this.invoices;
 		const list = parent.createDiv({ cls: "companion-finance-list" });
@@ -440,8 +497,8 @@ export class FinanceView extends ItemView {
 		}
 
 		const { total: totals, paid: paidTotals } = this.invoiceTotals();
-		const totalText = [...totals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
-		const paidText = [...paidTotals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
+		const totalText = this.formatBucketed(totals);
+		const paidText = this.formatBucketed(paidTotals);
 
 		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
 		groupTitle.createSpan({ text: `Invoiced (${items.length})${totalText ? ` — ${totalText} invoiced` : ""}` });
@@ -507,7 +564,8 @@ export class FinanceView extends ItemView {
 					result.cost,
 					result.invoiceReminder,
 					result.remind,
-					result.income
+					result.income,
+					result.currency
 				).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
@@ -536,6 +594,7 @@ export class FinanceView extends ItemView {
 				recur: reminder.recur,
 				remind: reminder.remind,
 				cost: reminder.cost,
+				currency: reminder.currency,
 				invoiceReminder: reminder.invoiceReminder,
 				income: reminder.income,
 			},
@@ -550,6 +609,7 @@ export class FinanceView extends ItemView {
 					recur: result.recur,
 					remind: result.remind,
 					cost: result.cost,
+					currency: result.currency,
 					invoiceReminder: result.invoiceReminder,
 					income: result.income,
 				}).then(
