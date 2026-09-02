@@ -1621,10 +1621,13 @@
 /* Force-hide: must always win regardless of source order against any
    other class setting display on the same element (e.g. the recur-row
    rows also carry .companion-event-editor-recur-row's `display: flex`,
-   same specificity -- without !important, whichever rule is later in
-   this file wins, which silently broke Cost/Repeat/Remind visibility). */
-.companion-hidden {
-	display: none !important;
+   same specificity -- without extra specificity here, whichever rule is
+   later in this file wins, which silently broke Cost/Repeat/Remind
+   visibility). The class is repeated to double the specificity (0,2,0),
+   which beats any single-class colliding rule without the blunt,
+   un-overridable force of the important flag. */
+.companion-hidden.companion-hidden {
+	display: none;
 }
 
 .companion-now-line {

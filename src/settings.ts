@@ -102,7 +102,6 @@ export class CompanionSettingTab extends PluginSettingTab {
 		return [
 			{
 				type: "group",
-				heading: "General",
 				items: [
 					{
 						name: "Confirm before deleting",
@@ -252,8 +251,6 @@ export class CompanionSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-
-		new Setting(containerEl).setName("General").setHeading();
 
 		new Setting(containerEl)
 			.setName("Confirm before deleting")
