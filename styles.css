@@ -985,6 +985,12 @@
 	gap: 4px;
 }
 
+.companion-finance-run-rate {
+	font-size: 0.85em;
+	color: var(--text-muted);
+	margin-bottom: 10px;
+}
+
 .companion-task-overdue {
 	color: var(--text-error, #c8524f);
 }

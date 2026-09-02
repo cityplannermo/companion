@@ -3,19 +3,15 @@ import {
 	advanceRecurringOccurrence,
 	applyEventEdit,
 	CompanionInvoice,
-	CompanionOtherIncome,
 	CompanionReminder,
-	createOtherIncome,
 	createQuickNote,
 	getInvoices,
-	getOtherIncome,
 	getReminders,
 	monthlyEquivalentCost,
 	setInvoicePaid,
 } from "./data";
 import type { RecurKind } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
-import { AddIncomeModal } from "./financeUI";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
@@ -25,16 +21,18 @@ import type { CompanionSettings } from "./settings";
 export const VIEW_TYPE_FINANCE = "companion-finance-view";
 
 /**
- * Companion's Finance tab: Subscriptions, Expenses, and Income, each a
- * Reminder note (or, for Income, an Invoice note) distinguished purely by
- * which fields are set -- see subscriptions()/expenses() below and
- * CompanionReminder/CompanionInvoice in data.ts. No new note types, just
- * three views onto notes that already exist elsewhere in the vault.
+ * Companion's Finance tab: Subscriptions, Expenses, Income (Reminders) and
+ * Income (Invoices), each an ordinary Reminder or Invoice note distinguished
+ * purely by which fields are set -- see subscriptions()/expenses()/
+ * incomeReminders() below and CompanionReminder/CompanionInvoice in
+ * data.ts. No dedicated note type for any of it. Creating and editing all
+ * go through the exact same New/Edit item dropdown as the Calendar's own
+ * "+" (see openCreate/openEditor below) -- one unified workflow, not a
+ * separate one per section.
  */
 export class FinanceView extends ItemView {
 	private reminders: CompanionReminder[] = [];
 	private invoices: CompanionInvoice[] = [];
-	private otherIncome: CompanionOtherIncome[] = [];
 	private selection = new Selection();
 
 	constructor(
@@ -71,23 +69,28 @@ export class FinanceView extends ItemView {
 	async refresh(): Promise<void> {
 		this.reminders = getReminders(this.app);
 		this.invoices = await getInvoices(this.app);
-		this.otherIncome = await getOtherIncome(this.app);
 		this.render();
 	}
 
-	/** Subscriptions and expenses are both cost-bearing Reminders,
-	 * distinguished only by whether a repeat rule is set -- every such
-	 * Reminder lands in exactly one of these two lists. */
+	/** Subscriptions, Expenses and Income (Reminders) are all cost-bearing
+	 * Reminders, distinguished by `recur` and the `income` flag -- every
+	 * such Reminder lands in exactly one of these three lists. See
+	 * CompanionEvent.income in data.ts for why direction is a flag rather
+	 * than a separate note type. */
 	private subscriptions(): CompanionReminder[] {
-		return this.reminders.filter((r) => !!r.recur && r.cost != null).sort(byDate);
+		return this.reminders.filter((r) => !!r.recur && r.cost != null && !r.income).sort(byDate);
 	}
 
 	private expenses(): CompanionReminder[] {
-		return this.reminders.filter((r) => !r.recur && r.cost != null).sort(byDate);
+		return this.reminders.filter((r) => !r.recur && r.cost != null && !r.income).sort(byDate);
 	}
 
-	private selectableItems(): { file: TFile }[] {
-		return [...this.subscriptions(), ...this.expenses(), ...this.otherIncome];
+	private incomeReminders(): CompanionReminder[] {
+		return this.reminders.filter((r) => r.cost != null && r.income).sort(byDate);
+	}
+
+	private selectableItems(): CompanionReminder[] {
+		return [...this.subscriptions(), ...this.expenses(), ...this.incomeReminders()];
 	}
 
 	private selectedFiles(): TFile[] {
@@ -115,10 +118,11 @@ export class FinanceView extends ItemView {
 				this.render();
 			}
 		);
+		this.renderMonthlyRunRate(root);
 		this.renderSubscriptions(root);
 		this.renderExpenses(root);
+		this.renderIncomeReminders(root);
 		this.renderIncome(root);
-		this.renderOtherIncome(root);
 	}
 
 	private renderHeader(parent: HTMLElement): void {
@@ -126,39 +130,47 @@ export class FinanceView extends ItemView {
 		header.createEl("h2", { text: "Finance" });
 
 		const actions = header.createDiv({ cls: "companion-finance-header-actions" });
-
-		const subBtn = actions.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
-		setIcon(subBtn, "plus");
-		subBtn.createSpan({ text: "Subscription" });
-		subBtn.onclick = () => this.openCreateCost("Subscription — a recurring Reminder with a cost, created here as one.");
-
-		const expBtn = actions.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
-		setIcon(expBtn, "plus");
-		expBtn.createSpan({ text: "Expense" });
-		expBtn.onclick = () => this.openCreateCost("Expense — a one-off Reminder with a cost, created here as one.");
-
-		const incomeBtn = actions.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
-		setIcon(incomeBtn, "plus");
-		incomeBtn.createSpan({ text: "Income" });
-		incomeBtn.onclick = () => this.openAddIncome();
+		const addBtn = actions.createEl("button", { cls: "companion-icon-btn companion-icon-btn-accent mod-cta", attr: { "aria-label": "New item" } });
+		setIcon(addBtn, "plus");
+		addBtn.onclick = () => this.openCreate();
 	}
 
-	/** Subscriptions -- reminders with both a repeat rule and a cost -- get
-	 * a running monthly-equivalent total in the section header, and a Renew
-	 * action per row that rolls the reminder's own due date forward one
-	 * period in place (see advanceRecurringOccurrence in data.ts) rather than
-	 * creating any new note. Edit/Select/Delete work the same as any other
-	 * reminder row. */
+	/** A one-line "how much moves every month" figure -- Subscriptions'
+	 * monthly-equivalent total against recurring Income's own (both use the
+	 * same monthlyEquivalentCost() normalisation across daily/weekly/
+	 * monthly/yearly/biennial), netted. Deliberately excludes one-off
+	 * Expenses and Income -- those aren't recurring, so they'd distort a
+	 * per-month figure rather than inform it; Income (Invoices) below has
+	 * its own "paid so far" line for actuals. Hidden entirely when there's
+	 * nothing recurring on either side, rather than showing "£0.00". */
+	private renderMonthlyRunRate(parent: HTMLElement): void {
+		const outgoing = this.subscriptions().reduce((sum, r) => sum + monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind), 0);
+		const incoming = this.incomeReminders()
+			.filter((r) => !!r.recur)
+			.reduce((sum, r) => sum + monthlyEquivalentCost(r.cost ?? 0, r.recur as RecurKind), 0);
+		if (outgoing === 0 && incoming === 0) return;
+
+		const net = incoming - outgoing;
+		const netText = net === 0 ? "break-even" : `net £${Math.abs(net).toFixed(2)}/month ${net > 0 ? "in" : "out"}`;
+		parent.createDiv({
+			cls: "companion-finance-run-rate",
+			text: `Recurring: £${incoming.toFixed(2)}/month in, £${outgoing.toFixed(2)}/month out — ${netText}`,
+		});
+	}
+
+	/** Subscriptions -- reminders with both a repeat rule and a cost, no
+	 * income flag -- get a running monthly-equivalent total in the section
+	 * header, and a Renew action per row that rolls the reminder's own due
+	 * date forward one period in place (see advanceRecurringOccurrence in
+	 * data.ts) rather than creating any new note. Edit/Select/Delete work
+	 * the same as any other reminder row. */
 	private renderSubscriptions(parent: HTMLElement): void {
 		const items = this.subscriptions();
 		const todayStr = formatDate(new Date());
 		const list = parent.createDiv({ cls: "companion-finance-list" });
 
 		if (items.length === 0) {
-			list.createDiv({
-				cls: "companion-empty",
-				text: "No subscriptions yet. A subscription is a Reminder with both a repeat rule and a cost.",
-			});
+			list.createDiv({ cls: "companion-empty", text: "No subscriptions yet." });
 			return;
 		}
 
@@ -177,7 +189,7 @@ export class FinanceView extends ItemView {
 					this.selectedFiles(),
 					this.settings.confirmBeforeDelete,
 					() => this.afterDelete(),
-					() => this.openEditorCost(sub, "Subscription — a recurring Reminder with a cost, edited here as one."),
+					() => this.openEditor(sub),
 					() => {
 						this.selection.toggle(sub.file.path);
 						this.render();
@@ -220,20 +232,17 @@ export class FinanceView extends ItemView {
 		}
 	}
 
-	/** Expenses -- one-off reminders with a cost but no repeat rule, the
-	 * exact complement of subscriptions() above. A running total in the
-	 * section header; no Renew button, since a one-off has nothing to roll
-	 * forward. */
+	/** Expenses -- one-off reminders with a cost but no repeat rule and no
+	 * income flag, the exact complement of subscriptions() above. A running
+	 * total in the section header; no Renew button, since a one-off has
+	 * nothing to roll forward. */
 	private renderExpenses(parent: HTMLElement): void {
 		const items = this.expenses();
 		const todayStr = formatDate(new Date());
 		const list = parent.createDiv({ cls: "companion-finance-list" });
 
 		if (items.length === 0) {
-			list.createDiv({
-				cls: "companion-empty",
-				text: "No expenses yet. An expense is a Reminder with a cost and no repeat rule.",
-			});
+			list.createDiv({ cls: "companion-empty", text: "No expenses yet." });
 			return;
 		}
 
@@ -252,7 +261,7 @@ export class FinanceView extends ItemView {
 					this.selectedFiles(),
 					this.settings.confirmBeforeDelete,
 					() => this.afterDelete(),
-					() => this.openEditorCost(exp, "Expense — a one-off Reminder with a cost, edited here as one."),
+					() => this.openEditor(exp),
 					() => {
 						this.selection.toggle(exp.file.path);
 						this.render();
@@ -282,10 +291,75 @@ export class FinanceView extends ItemView {
 		}
 	}
 
-	/** Income -- every invoice ever generated (see getInvoices in data.ts),
-	 * summed per currency symbol since a client can be billed in a
-	 * different currency from another and the two shouldn't be merged into
-	 * one misleading total. The headline total is every invoice ever
+	/** Income (Reminders) -- ad hoc or recurring incoming money with no
+	 * client or invoice behind it (see CompanionEvent.income in data.ts),
+	 * the mirror image of Subscriptions/Expenses above: same Reminder
+	 * shape, `income: true` instead of absent, `recur` optional either
+	 * way. A running total (one-off entries only, same convention as
+	 * Expenses' total -- recurring ones are in the run-rate line above
+	 * instead). No Paid toggle here -- unlike an Invoice, one of these only
+	 * ever gets created once the money's already in hand or is a standing
+	 * expectation, not something invoiced and awaiting payment. */
+	private renderIncomeReminders(parent: HTMLElement): void {
+		const items = this.incomeReminders();
+		const todayStr = formatDate(new Date());
+		const list = parent.createDiv({ cls: "companion-finance-list" });
+
+		if (items.length === 0) {
+			list.createDiv({ cls: "companion-empty", text: "No other income yet." });
+			return;
+		}
+
+		const total = items.filter((r) => !r.recur).reduce((sum, r) => sum + (r.cost ?? 0), 0);
+		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
+		groupTitle.createSpan({ text: `Income (${items.length})${total ? ` — £${total.toFixed(2)}` : ""}` });
+
+		for (const inc of items) {
+			const row = list.createDiv({ cls: "companion-list-row" });
+			row.toggleClass("is-selected", this.selection.has(inc.file.path));
+			row.oncontextmenu = (e) =>
+				showDeleteMenu(
+					this.app,
+					e,
+					inc.file,
+					this.selectedFiles(),
+					this.settings.confirmBeforeDelete,
+					() => this.afterDelete(),
+					() => this.openEditor(inc),
+					() => {
+						this.selection.toggle(inc.file.path);
+						this.render();
+					},
+					() => {
+						this.selection.clear();
+						this.render();
+					}
+				);
+
+			row.createDiv({
+				cls: "companion-list-row-date",
+				text: inc.date ? formatDisplayShortDate(inc.date) : "No date",
+			});
+			if (inc.date && inc.date < todayStr) row.addClass("companion-reminder-overdue");
+
+			const title = row.createDiv({ cls: "companion-list-row-title", text: inc.title });
+			makeOpenable(this.app, title, inc.file, {
+				onToggleSelect: () => {
+					this.selection.toggle(inc.file.path);
+					this.render();
+				},
+				isSelecting: () => this.selection.size > 0,
+			});
+
+			const costText = inc.recur ? `£${(inc.cost ?? 0).toFixed(2)}/${periodSuffix(inc.recur)}` : `£${(inc.cost ?? 0).toFixed(2)}`;
+			row.createDiv({ cls: "companion-subscription-cost", text: costText });
+		}
+	}
+
+	/** Invoiced income -- every invoice ever generated (see getInvoices in
+	 * data.ts), summed per currency symbol since a client can be billed in
+	 * a different currency from another and the two shouldn't be merged
+	 * into one misleading total. The headline total is every invoice ever
 	 * raised, invoiced not collected, same as always -- but each row also
 	 * carries its own `paid` flag now (see setInvoicePaid in data.ts), and
 	 * the line under the total splits out how much of it has actually come
@@ -314,7 +388,7 @@ export class FinanceView extends ItemView {
 		const paidText = [...paidTotals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
 
 		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Income (${items.length})${totalText ? ` — ${totalText} invoiced` : ""}` });
+		groupTitle.createSpan({ text: `Invoiced (${items.length})${totalText ? ` — ${totalText} invoiced` : ""}` });
 		if (paidText) {
 			list.createDiv({ cls: "companion-empty", text: `${paidText} paid so far` });
 		}
@@ -351,114 +425,40 @@ export class FinanceView extends ItemView {
 		}
 	}
 
-	/** Other income -- ad hoc, one-off receipts (a Twitch tip, a one-off
-	 * sale) that don't fit the Invoice shape at all (see CompanionOtherIncome
-	 * in data.ts). A separate total per currency from Income above, since
-	 * "invoiced" and "just showed up" shouldn't be merged into one figure.
-	 * No paid toggle here -- unlike an invoice, an ad hoc income note only
-	 * ever gets created once the money's already in hand, so there's no
-	 * unpaid state to track. Delete-only via the usual right-click menu;
-	 * no dedicated edit modal for v1 -- open the note itself for a
-	 * correction, same as any other note in the wiki. */
-	private renderOtherIncome(parent: HTMLElement): void {
-		const items = this.otherIncome;
-		const list = parent.createDiv({ cls: "companion-finance-list" });
-
-		if (items.length === 0) {
-			list.createDiv({ cls: "companion-empty", text: "No other income yet. Use “+ Income” above for anything outside Invoicing -- a Twitch tip, a one-off sale." });
-			return;
-		}
-
-		const totals = new Map<string, number>();
-		for (const inc of items) {
-			const key = inc.currencySymbol || "£";
-			totals.set(key, (totals.get(key) ?? 0) + inc.amount);
-		}
-		const totalText = [...totals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
-
-		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Other income (${items.length})${totalText ? ` — ${totalText}` : ""}` });
-
-		for (const inc of items) {
-			const row = list.createDiv({ cls: "companion-list-row" });
-			row.toggleClass("is-selected", this.selection.has(inc.file.path));
-			row.oncontextmenu = (e) =>
-				showDeleteMenu(
-					this.app,
-					e,
-					inc.file,
-					this.selectedFiles(),
-					this.settings.confirmBeforeDelete,
-					() => this.afterDelete(),
-					undefined,
-					() => {
-						this.selection.toggle(inc.file.path);
-						this.render();
-					},
-					() => {
-						this.selection.clear();
-						this.render();
-					}
-				);
-
-			row.createDiv({
-				cls: "companion-list-row-date",
-				text: inc.date ? formatDisplayShortDate(inc.date) : "No date",
-			});
-
-			const title = row.createDiv({ cls: "companion-list-row-title", text: inc.source });
-			makeOpenable(this.app, title, inc.file, {
-				onToggleSelect: () => {
-					this.selection.toggle(inc.file.path);
-					this.render();
-				},
-				isSelecting: () => this.selection.size > 0,
-			});
-
-			row.createDiv({ cls: "companion-subscription-cost", text: `${inc.currencySymbol}${inc.amount.toFixed(2)}` });
-		}
+	/** Opens the exact same shared New/Edit item modal as the Calendar's
+	 * own "+" -- full type dropdown (Meeting/Event/Reminder/Subscription/
+	 * Invoice reminder/Income/Task/Post), not a Finance-specific locked
+	 * one. Whatever's picked is created the normal way; if it lands as a
+	 * Subscription, Expense or Income, it shows up here on refresh -- if
+	 * not, it simply doesn't, same as creating it from the Calendar would.
+	 * One workflow, entered from either tab. */
+	private openCreate(): void {
+		new EventEditorModal(this.app, "create", { title: "", type: "reminder", date: formatDate(new Date()), timeStr: "00:00" }, (result) => {
+			createQuickNote(
+				this.app,
+				result.type,
+				result.date,
+				result.title,
+				result.allDay ? "00:00" : result.startTime,
+				result.allDay ? undefined : result.endTime,
+				result.client,
+				result.recur,
+				result.cost,
+				result.invoiceReminder,
+				result.remind,
+				result.income
+			).then(
+				() => this.refresh(),
+				(err: Error) => new Notice(err.message)
+			);
+		}).open();
 	}
 
-	/** Opens the shared editor modal to create a new subscription or
-	 * expense -- type is locked to Reminder here (see label below), since
-	 * anything created from the Finance tab is one or the other by
-	 * definition; the dropdown is only offered where the type is genuinely
-	 * still a choice, e.g. the Calendar's own "+ New item". `recur` is left
-	 * unset either way -- the field is present for the user to fill in
-	 * (a subscription needs one, an expense doesn't), and which list a note
-	 * lands in is decided by whether it ends up set, not by which button
-	 * created it. */
-	private openCreateCost(label: string): void {
-		new EventEditorModal(
-			this.app,
-			"create",
-			{ title: "", type: "reminder", date: formatDate(new Date()), timeStr: "00:00" },
-			(result) => {
-				createQuickNote(
-					this.app,
-					result.type,
-					result.date,
-					result.title,
-					result.allDay ? "00:00" : result.startTime,
-					result.allDay ? undefined : result.endTime,
-					result.client,
-					result.recur,
-					result.cost,
-					result.invoiceReminder,
-					result.remind
-				).then(
-					() => this.refresh(),
-					(err: Error) => new Notice(err.message)
-				);
-			},
-			label
-		).open();
-	}
-
-	/** Opens the shared editor modal (title, time, repeat, cost) on an
-	 * existing subscription or expense, the same modal the calendar and
-	 * Reminders view use. */
-	private openEditorCost(reminder: CompanionReminder, label: string): void {
+	/** Opens the shared editor modal on an existing Subscription, Expense
+	 * or Income reminder -- same dropdown-enabled modal the Calendar uses
+	 * for its own items, so changing Repeat/Cost/the Income flag (or the
+	 * type entirely) here behaves identically to doing it from there. */
+	private openEditor(reminder: CompanionReminder): void {
 		new EventEditorModal(
 			this.app,
 			"edit",
@@ -471,6 +471,7 @@ export class FinanceView extends ItemView {
 				remind: reminder.remind,
 				cost: reminder.cost,
 				invoiceReminder: reminder.invoiceReminder,
+				income: reminder.income,
 			},
 			(result) => {
 				applyEventEdit(this.app, reminder.file, "reminder", {
@@ -484,28 +485,13 @@ export class FinanceView extends ItemView {
 					remind: result.remind,
 					cost: result.cost,
 					invoiceReminder: result.invoiceReminder,
+					income: result.income,
 				}).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
 				);
-			},
-			label
+			}
 		).open();
-	}
-
-	/** Opens the small Add income modal, then writes a new ad hoc income
-	 * note straight away (see createOtherIncome in data.ts) -- no shared
-	 * editor detour, since none of that modal's fields (type, repeat,
-	 * remind, client) apply here. `knownSources` seeds the datalist with
-	 * whatever's already been used, so "Twitch" only needs typing once. */
-	private openAddIncome(): void {
-		const knownSources = [...new Set(this.otherIncome.map((i) => i.source))];
-		new AddIncomeModal(this.app, knownSources, (source, amount, currencySymbol, dateStr) => {
-			createOtherIncome(this.app, source, amount, currencySymbol, dateStr).then(
-				() => this.refresh(),
-				(err: Error) => new Notice(err.message)
-			);
-		}).open();
 	}
 }
 

@@ -324,6 +324,7 @@ export class RemindersView extends ItemView {
 				remind: reminder.remind,
 				cost: reminder.cost,
 				invoiceReminder: reminder.invoiceReminder,
+				income: reminder.income,
 			},
 			(result) => {
 				applyEventEdit(this.app, reminder.file, "reminder", {
@@ -337,6 +338,7 @@ export class RemindersView extends ItemView {
 					remind: result.remind,
 					cost: result.cost,
 					invoiceReminder: result.invoiceReminder,
+					income: result.income,
 				}).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)

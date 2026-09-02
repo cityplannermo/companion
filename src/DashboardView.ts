@@ -145,7 +145,8 @@ export class DashboardEmbed extends MarkdownRenderChild {
 				result.recur,
 				result.cost,
 				result.invoiceReminder,
-				result.remind
+				result.remind,
+				result.income
 			).then(
 				() => this.refresh(),
 				(err: Error) => new Notice(err.message)

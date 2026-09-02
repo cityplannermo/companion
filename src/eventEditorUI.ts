@@ -27,7 +27,7 @@ const REMIND_OPTIONS: { value: RemindLead | ""; label: string }[] = [
 // an Invoice reminder is a Reminder that just borrows the Invoice pill
 // colour on the calendar, as a nudge to go generate the real invoice that
 // day through the Invoice Create Procedure -- it never creates one itself.
-type DropdownValue = QuickCreateType | "subscription" | "invoiceReminder";
+type DropdownValue = QuickCreateType | "subscription" | "invoiceReminder" | "income";
 
 const TYPE_OPTIONS: { value: DropdownValue; label: string }[] = [
 	{ value: "meeting", label: "Meeting" },
@@ -35,22 +35,25 @@ const TYPE_OPTIONS: { value: DropdownValue; label: string }[] = [
 	{ value: "reminder", label: "Reminder" },
 	{ value: "subscription", label: "Subscription" },
 	{ value: "invoiceReminder", label: "Invoice reminder" },
+	{ value: "income", label: "Income" },
 	{ value: "task", label: "Task" },
+	{ value: "post", label: "Post" },
 ];
 
 /** A Reminder written with a repeat rule and a cost is a subscription; one
  * written with a repeat rule and this flag just wants the Invoice pill
  * colour on the calendar -- see the DropdownValue comment above. */
 function resolveType(value: DropdownValue): QuickCreateType {
-	return value === "subscription" || value === "invoiceReminder" ? "reminder" : value;
+	return value === "subscription" || value === "invoiceReminder" || value === "income" ? "reminder" : value;
 }
 
 /** The dropdown option that best represents an existing item's current
  * shape, for pre-selecting it when editing (or defaulting a new one). */
-function dropdownValueFor(type: CompanionEventType, recur?: RecurKind, cost?: number, invoiceReminder?: boolean): DropdownValue {
+function dropdownValueFor(type: CompanionEventType, recur?: RecurKind, cost?: number, invoiceReminder?: boolean, income?: boolean): DropdownValue {
 	if (type === "invoice" || type === "post") return "reminder"; // unreachable in practice -- this modal is never opened for an Invoice (see isInvoice above) or a Post (see CompanionEventType's comment)
 	if (type !== "reminder") return type;
 	if (invoiceReminder) return "invoiceReminder";
+	if (income) return "income";
 	if (recur && cost != null) return "subscription";
 	return "reminder";
 }
@@ -70,6 +73,7 @@ export interface EventEditorResult {
 	remind: RemindLead | null; // null = no advance reminder
 	cost: number | null; // only meaningful when type === "reminder"; null = not a subscription
 	invoiceReminder: boolean; // only meaningful when type === "reminder" -- see DropdownValue above
+	income: boolean; // only meaningful when type === "reminder" -- flips the direction from an outgoing cost to incoming money
 }
 
 export interface EventEditorInitial {
@@ -83,6 +87,7 @@ export interface EventEditorInitial {
 	remind?: RemindLead; // absent/undefined = no advance reminder
 	cost?: number; // meaningful only when type === "reminder"
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"
+	income?: boolean; // meaningful only when type === "reminder"
 }
 
 function toMinutes(hhmm: string): number {
@@ -151,9 +156,16 @@ export class EventEditorModal extends Modal {
 				text: isInvoice ? "Invoice — edited via the Invoice Create Procedure, not here." : this.lockedTypeLabel,
 			});
 		} else {
-			const initialValue = dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder);
+			const initialValue = dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder, this.initial.income);
 			typeSelect = contentEl.createEl("select", { cls: "companion-event-editor-type" });
-			for (const opt of TYPE_OPTIONS) {
+			// Post is create-only -- offering it here would let switching an
+			// existing Reminder/Event/Task/Meeting's dropdown to "Post" run it
+			// through applyEventEdit() below, which retags and moves the note
+			// into Content/Posts/ without ever writing the status/platform/
+			// scheduled fields a real Post note needs (only createPostIdea in
+			// data.ts does that). Excluded in edit mode for that reason.
+			const options = this.mode === "edit" ? TYPE_OPTIONS.filter((opt) => opt.value !== "post") : TYPE_OPTIONS;
+			for (const opt of options) {
 				const el = typeSelect.createEl("option", { text: opt.label, value: opt.value });
 				if (opt.value === initialValue) el.selected = true;
 			}
@@ -220,7 +232,7 @@ export class EventEditorModal extends Modal {
 			// Calendar/agenda pencil (rather than Finance's own row) would hide
 			// its cost from view entirely.
 			const currentType = typeSelect.value;
-			const relevant = currentType === "subscription" || currentType === "invoiceReminder" || costInput.value !== "";
+			const relevant = currentType === "subscription" || currentType === "invoiceReminder" || currentType === "income" || costInput.value !== "";
 			costRow.toggleClass("companion-hidden", !relevant);
 		};
 		syncCostVisibility();
@@ -277,6 +289,22 @@ export class EventEditorModal extends Modal {
 		syncTimesDisabled();
 		allDayCheckbox.onchange = syncTimesDisabled;
 
+		// A Post note has none of Repeat/Remind/start-end times/All day -- its
+		// only two dates are "date" (creation, set automatically) and this
+		// modal's own date field, reused as the target "scheduled" date (see
+		// createPostIdea in data.ts). Hide the fields that don't apply rather
+		// than leave them showing and ignored.
+		const syncPostVisibility = () => {
+			if (isInvoice) return; // recur/remind are already permanently hidden above; no dropdown to change type anyway
+			const isPost = typeSelect?.value === "post";
+			recurRow.toggleClass("companion-hidden", isPost);
+			remindRow.toggleClass("companion-hidden", isPost);
+			timesRow.toggleClass("companion-hidden", isPost);
+			allDayLabel.toggleClass("companion-hidden", isPost);
+		};
+		syncPostVisibility();
+		typeSelect?.addEventListener("change", syncPostVisibility);
+
 		let submitted = false;
 		const submit = () => {
 			if (submitted) return; // guards against Enter and the Save button both firing
@@ -290,7 +318,7 @@ export class EventEditorModal extends Modal {
 			const allDay = allDayCheckbox.checked;
 			const selected =
 				(typeSelect?.value as DropdownValue | undefined) ??
-				dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder);
+				dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder, this.initial.income);
 			this.onSubmit({
 				title,
 				type: resolveType(selected),
@@ -303,6 +331,7 @@ export class EventEditorModal extends Modal {
 				remind: (remindSelect.value || null) as RemindLead | null,
 				cost: costInput.value ? Number(costInput.value) : null,
 				invoiceReminder: selected === "invoiceReminder",
+				income: selected === "income",
 			});
 		};
 		const onEscape = (e: KeyboardEvent) => {

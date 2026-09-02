@@ -43,6 +43,7 @@ export interface CompanionEvent {
 	remind?: RemindLead; // set when this note wants an advance-notice desktop notification ahead of its own date
 	cost?: number; // GBP, meaningful only when type === "reminder" -- what makes it a subscription
 	invoiceReminder?: boolean; // meaningful only when type === "reminder" -- shows with the Invoice pill colour on the calendar (see CalendarView's visualType), without being a real Invoice
+	income?: boolean; // meaningful only when type === "reminder" -- flips the calendar/Finance direction from an outgoing cost to incoming money (see visualType's "income" category and CompanionReminder.income below); a Reminder can carry both recur and income, e.g. a monthly payout
 	// Set only on a *projected* occurrence (see getRecurringOccurrences below) --
 	// `file` on one of these still points at the series note, since there's no
 	// real note yet for a virtual date. Every caller that would otherwise act on
@@ -226,6 +227,7 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 			remind: parseRemindLead(frontmatter["remind"]) ?? undefined,
 			cost: type === "reminder" && typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
 			invoiceReminder: type === "reminder" && frontmatter["invoiceReminder"] === true ? true : undefined,
+			income: type === "reminder" && frontmatter["income"] === true ? true : undefined,
 		};
 
 		const bucket = index.get(date);
@@ -416,13 +418,15 @@ export async function renameCompanionFile(app: App, file: TFile, newTitle: strin
 // Meetings are included here (with a client field) since a client link is
 // the only extra thing a Meeting note needs beyond what Reminders/Tasks/
 // Events already have.
-export type QuickCreateType = "reminder" | "task" | "event" | "meeting";
+export type QuickCreateType = "reminder" | "task" | "event" | "meeting" | "post";
 
 // Every type's folder, including Invoice -- used by applyEventEdit() below
 // when moving a note between types, even though quickCreateFrontmatter()
-// itself never produces an Invoice. "post" is here only so this compiles
-// as a total Record -- createQuickNote()/applyEventEdit() are never called
-// with type "post" (see the CompanionEventType comment), so it's never read.
+// itself never produces an Invoice or a Post. "post" is only ever read by
+// createQuickNote()'s own early Post branch below (see createPostIdea) --
+// applyEventEdit() still never converts a note to or from "post", same as
+// Invoice, since Companion only ever creates a Post, never edits one (see
+// the CompanionEventType comment).
 const QUICK_CREATE_FOLDER: Record<CompanionEventType, string> = {
 	reminder: "Admin/Reminders",
 	task: "Admin/Tasks",
@@ -441,7 +445,8 @@ function quickCreateFrontmatter(
 	recur?: RecurKind | null,
 	cost?: number | null,
 	invoiceReminder?: boolean,
-	remind?: RemindLead | null
+	remind?: RemindLead | null,
+	income?: boolean
 ): string {
 	const endLine = endTimeStr ? `end: ${dateStr}T${endTimeStr}\n` : "";
 	const recurLine = recur ? `recur: ${recur}\n` : "";
@@ -456,28 +461,72 @@ function quickCreateFrontmatter(
 		const clientLine = client?.trim() ? `client: [[${client.trim()}]]\n` : "client:\n";
 		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${clientLine}${recurLine}${remindLine}tags:\n  - meeting\n---\n\n`;
 	}
-	// Reminder -- the only type `cost`/`invoiceReminder` are meaningful on
-	// (see CompanionReminder / CompanionEvent.invoiceReminder). A subscription
-	// isn't a separate note type -- it's a Reminder with both `recur` and
-	// `cost` set -- but it gets a second `subscription` tag alongside
-	// `reminder` so it's still findable by tag or a Base filter on its own.
+	// Reminder -- the only type `cost`/`invoiceReminder`/`income` are
+	// meaningful on (see CompanionReminder / CompanionEvent). Subscription
+	// and (ad hoc or recurring) Income aren't separate note types -- both
+	// are a Reminder with `cost` set, `recur` optionally alongside it, and
+	// (for Income) the `income` flag marking the direction as money coming
+	// in rather than going out -- each gets its own extra tag alongside
+	// `reminder` so it's still findable by tag or a Base filter on its own,
+	// and the two can combine (a recurring Income, e.g. a monthly payout).
 	const costLine = cost != null && cost > 0 ? `cost: ${cost}\n` : "";
 	const invoiceReminderLine = invoiceReminder ? `invoiceReminder: true\n` : "";
+	const incomeLine = income ? `income: true\n` : "";
 	const isSubscription = !!recur && cost != null && cost > 0;
-	const tagsBlock = isSubscription ? `tags:\n  - reminder\n  - subscription\n` : `tags:\n  - reminder\n`;
-	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}${costLine}${invoiceReminderLine}${tagsBlock}---\n\n`;
+	const tags = ["reminder"];
+	if (isSubscription) tags.push("subscription");
+	if (income) tags.push("income");
+	const tagsBlock = `tags:\n${tags.map((t) => `  - ${t}\n`).join("")}`;
+	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}${costLine}${invoiceReminderLine}${incomeLine}${tagsBlock}---\n\n`;
 }
 
-/** Creates a new Reminder, Task, Event or Meeting note dated to `dateStr`,
- * titled `title`. `timeStr` (default "00:00") lets the Week/Day grid create
- * a note already scheduled to the clicked slot instead of always landing
- * undated. `endTimeStr`, if given, adds an `end` field so the note renders
- * as a duration block rather than a point in time. `client`, meaningful
- * only for a Meeting, is wrapped into a `[[wikilink]]`. `cost`, meaningful
- * only for a Reminder, is what turns it into a subscription alongside
- * `recur` in the Reminders view. `invoiceReminder`, also Reminder-only,
- * just borrows the Invoice pill colour on the calendar -- see
- * CompanionEvent.invoiceReminder. */
+/** A minimal "Post idea" capture -- reachable from the exact same shared
+ * New Item dropdown as every other quick-create type (Mo's own request:
+ * "add post as a type of event in the event creation dropdown"), via
+ * createQuickNote()'s own early branch below. Deliberately the narrowest
+ * possible write: a title, and the modal's own date field becomes this
+ * post's `scheduled:` target date (see the `provisional` calendar pin from
+ * `1.28.0`) -- not its `date:`, which stays the note's real creation date,
+ * same convention as every other Post. Everything else defaults to
+ * whatever the content-drafting workflow expects an Idea-stage post to
+ * start as (`status: Idea`, no platform/verify_against yet). This is the
+ * one place Companion creates a Post note -- from here on the
+ * content-drafting workflow owns it, same as any other post; Companion
+ * still never edits or deletes one (see the CompanionEventType comment
+ * above buildIndex). */
+async function createPostIdea(app: App, title: string, scheduledDateStr: string): Promise<TFile> {
+	const safeTitle = title.trim();
+	if (!safeTitle) throw new Error("A title is needed to create a post idea.");
+
+	const filenameBase = sanitiseFilename(`${safeTitle} - Post Idea`);
+	let path = `${QUICK_CREATE_FOLDER.post}/${filenameBase}.md`;
+	let n = 2;
+	while (app.vault.getAbstractFileByPath(path)) {
+		path = `${QUICK_CREATE_FOLDER.post}/${filenameBase} (${n}).md`;
+		n++;
+	}
+
+	const todayStr = formatDate(new Date());
+	return app.vault.create(
+		path,
+		`---\ndate: ${todayStr}T00:00\ntags:\n  - content\n  - post\nstatus:\n  - Idea\nplatform:\npublished:\ncancelled:\nscheduled: ${scheduledDateStr}\n---\n\n`
+	);
+}
+
+/** Creates a new Reminder, Task, Event, Meeting or Post note. For the first
+ * four, dated to `dateStr` and titled `title`; `timeStr` (default "00:00")
+ * lets the Week/Day grid create a note already scheduled to the clicked
+ * slot instead of always landing undated. `endTimeStr`, if given, adds an
+ * `end` field so the note renders as a duration block rather than a point
+ * in time. `client`, meaningful only for a Meeting, is wrapped into a
+ * `[[wikilink]]`. `cost`, meaningful only for a Reminder, is what turns it
+ * into a Subscription alongside `recur`, or an ad hoc/recurring Income
+ * alongside `income`, in the Reminders/Finance views. `invoiceReminder`,
+ * also Reminder-only, just borrows the Invoice pill colour on the calendar
+ * -- see CompanionEvent.invoiceReminder. A Post is a different enough shape
+ * (see CompanionEventType) that it's handled entirely separately, by
+ * createPostIdea() above -- `dateStr` becomes its `scheduled:` field, and
+ * every other parameter here is simply ignored for it. */
 export async function createQuickNote(
 	app: App,
 	type: QuickCreateType,
@@ -489,8 +538,11 @@ export async function createQuickNote(
 	recur?: RecurKind | null,
 	cost?: number | null,
 	invoiceReminder?: boolean,
-	remind?: RemindLead | null
+	remind?: RemindLead | null,
+	income?: boolean
 ): Promise<TFile> {
+	if (type === "post") return createPostIdea(app, title, dateStr);
+
 	const safe = sanitiseFilename(title);
 	if (!safe) throw new Error("A title is needed to create a note.");
 
@@ -498,7 +550,10 @@ export async function createQuickNote(
 	if (app.vault.getAbstractFileByPath(path)) {
 		throw new Error(`A note already exists at "${path}".`);
 	}
-	return app.vault.create(path, quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder, remind));
+	return app.vault.create(
+		path,
+		quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder, remind, income)
+	);
 }
 
 function replaceTypeTag(fm: Record<string, unknown>, oldTag: string, newTag: string): void {
@@ -527,6 +582,7 @@ export interface EventEditFields {
 	remind?: RemindLead | null; // null/undefined clears any existing advance reminder
 	cost?: number | null; // meaningful only when type === "reminder"; null/undefined clears it
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"; falsy clears it
+	income?: boolean; // meaningful only when type === "reminder"; falsy clears it
 }
 
 /**
@@ -599,15 +655,23 @@ export async function applyEventEdit(app: App, file: TFile, oldType: CompanionEv
 		else delete fm["cost"];
 		if (fields.type === "reminder" && fields.invoiceReminder) fm["invoiceReminder"] = true;
 		else delete fm["invoiceReminder"];
+		if (fields.type === "reminder" && fields.income) fm["income"] = true;
+		else delete fm["income"];
 
-		// Keep the `subscription` tag in sync with recur+cost both being set
-		// -- added or dropped automatically, the same way `status`/`client`
-		// above track the type, rather than something to maintain by hand.
+		// Keep the `subscription`/`income` tags in sync with what actually
+		// makes a Reminder one -- added or dropped automatically, the same
+		// way `status`/`client` above track the type, rather than something
+		// to maintain by hand.
 		const isSubscription = fields.type === "reminder" && !!fields.recur && fields.cost != null && fields.cost > 0;
+		const isIncome = fields.type === "reminder" && !!fields.income;
 		const tags = getTags(fm);
-		const idx = tags.indexOf("subscription");
-		if (isSubscription && idx === -1) tags.push("subscription");
-		else if (!isSubscription && idx !== -1) tags.splice(idx, 1);
+		const syncTag = (tag: string, present: boolean) => {
+			const idx = tags.indexOf(tag);
+			if (present && idx === -1) tags.push(tag);
+			else if (!present && idx !== -1) tags.splice(idx, 1);
+		};
+		syncTag("subscription", isSubscription);
+		syncTag("income", isIncome);
 		fm["tags"] = tags;
 	});
 
@@ -734,6 +798,7 @@ export function getRecurringOccurrences(app: App, rangeStart: string, rangeEnd: 
 		const remind = parseRemindLead(fm["remind"]) ?? undefined;
 		const cost = type === "reminder" && typeof fm["cost"] === "number" ? fm["cost"] : undefined;
 		const invoiceReminder = type === "reminder" && fm["invoiceReminder"] === true ? true : undefined;
+		const income = type === "reminder" && fm["income"] === true ? true : undefined;
 
 		// A series split via splitRecurringSeries() below caps the *original*
 		// half at the day before the split -- it never projects the split
@@ -758,6 +823,7 @@ export function getRecurringOccurrences(app: App, rangeStart: string, rangeEnd: 
 				remind,
 				cost,
 				invoiceReminder,
+				income,
 				virtualOf: file,
 			});
 		}
@@ -907,6 +973,7 @@ export interface CompanionReminder {
 	remind?: RemindLead; // see CompanionEvent.remind -- carried here too so editing a reminder from the Reminders/Finance views doesn't silently clear it
 	cost?: number; // GBP, only meaningful alongside recur
 	invoiceReminder?: boolean; // see CompanionEvent.invoiceReminder -- carried here too so editing a reminder from the Reminders/Finance views doesn't silently clear the flag
+	income?: boolean; // see CompanionEvent.income -- same reason, carried through so an edit never silently clears it
 }
 
 export function getReminders(app: App): CompanionReminder[] {
@@ -927,6 +994,7 @@ export function getReminders(app: App): CompanionReminder[] {
 			remind: parseRemindLead(frontmatter["remind"]) ?? undefined,
 			cost: typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
 			invoiceReminder: frontmatter["invoiceReminder"] === true ? true : undefined,
+			income: frontmatter["income"] === true ? true : undefined,
 		});
 	}
 
@@ -1541,78 +1609,6 @@ export async function setInvoicePaid(app: App, file: TFile, paid: boolean): Prom
 		if (paid) fm["paid"] = true;
 		else delete fm["paid"];
 	});
-}
-
-const OTHER_INCOME_FOLDER = "Admin/Income";
-
-/** A one-off payment with no client relationship behind it -- a Twitch
- * tip, a one-off sale -- doesn't fit the Invoice shape (no line items, no
- * client, always goes through the Invoice Create Procedure) or the
- * Reminder shape (nothing to remind about -- the money's already in
- * hand), so it gets its own minimal note instead: just source, date and
- * amount. Unlike Invoices and Posts, Companion owns this note type
- * end-to-end (create here, delete via the usual delete menu) -- there's
- * no other workflow in the wiki that would ever produce one. */
-export interface CompanionOtherIncome {
-	file: TFile;
-	source: string;
-	date: string | null; // YYYY-MM-DD
-	amount: number;
-	currencySymbol: string; // "£" or "$"
-}
-
-/** Every ad hoc income note, newest first -- feeds the Finance tab's
- * Income section as a second, separate total alongside invoiced income
- * (see renderIncome in FinanceView.ts): "invoiced" and "money that just
- * showed up" are different enough facts that merging them into one
- * figure would be misleading either way. */
-export async function getOtherIncome(app: App): Promise<CompanionOtherIncome[]> {
-	const items: CompanionOtherIncome[] = [];
-	for (const file of app.vault.getMarkdownFiles()) {
-		if (file.parent?.path !== OTHER_INCOME_FOLDER) continue;
-		const cache = app.metadataCache.getFileCache(file);
-		const frontmatter = cache?.frontmatter;
-		if (!frontmatter) continue;
-		const amount = typeof frontmatter["amount"] === "number" ? frontmatter["amount"] : null;
-		if (amount == null) continue;
-
-		items.push({
-			file,
-			source: typeof frontmatter["source"] === "string" && frontmatter["source"] ? frontmatter["source"] : file.basename,
-			date: normaliseDate(frontmatter["date"]),
-			amount,
-			currencySymbol: frontmatter["currency"] === "$" ? "$" : "£",
-		});
-	}
-	return items.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
-}
-
-/** Writes a new ad hoc income note directly -- no dropdown/type detour,
- * since this is the only thing the "+ Income" button in Finance can
- * create. `currencySymbol` is whatever the small Add income modal's
- * dropdown was set to ("£" or "$"); anything else is treated as "£" on
- * read (see getOtherIncome above), so this always writes one of the two. */
-export async function createOtherIncome(app: App, source: string, amount: number, currencySymbol: string, dateStr: string): Promise<TFile> {
-	const safeSource = source.trim();
-	if (!safeSource) throw new Error("A source is needed to record income.");
-	if (!(amount > 0)) throw new Error("An amount greater than zero is needed.");
-
-	const date = parseDateStr(dateStr);
-	const titleBase = sanitiseFilename(`${safeSource} - ${formatDMY(date)}`);
-	let path = `${OTHER_INCOME_FOLDER}/${titleBase}.md`;
-	let n = 2;
-	while (app.vault.getAbstractFileByPath(path)) {
-		path = `${OTHER_INCOME_FOLDER}/${titleBase} (${n}).md`;
-		n++;
-	}
-
-	const file = await app.vault.create(path, `---\ndate: ${dateStr}\ntags:\n  - income\nsource:\namount:\ncurrency:\n---\n\n`);
-	await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-		fm["source"] = safeSource;
-		fm["amount"] = amount;
-		fm["currency"] = currencySymbol === "$" ? "$" : "£";
-	});
-	return file;
 }
 
 // en-GB's Intl month abbreviation gives "Sept" for September (4 letters,

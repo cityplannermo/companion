@@ -757,7 +757,8 @@ export class CalendarView extends ItemView {
 				result.recur,
 				result.cost,
 				result.invoiceReminder,
-				result.remind
+				result.remind,
+				result.income
 			).then(
 				() => this.refresh(),
 				(err: Error) => new Notice(err.message)
@@ -774,7 +775,19 @@ export class CalendarView extends ItemView {
 		new EventEditorModal(
 			this.app,
 			"edit",
-			{ title: ev.title, type: ev.type, date: ev.date, timeStr: ev.time, endTimeStr: ev.endTime, client: ev.client, recur: ev.recur, remind: ev.remind, cost: ev.cost },
+			{
+				title: ev.title,
+				type: ev.type,
+				date: ev.date,
+				timeStr: ev.time,
+				endTimeStr: ev.endTime,
+				client: ev.client,
+				recur: ev.recur,
+				remind: ev.remind,
+				cost: ev.cost,
+				invoiceReminder: ev.invoiceReminder,
+				income: ev.income,
+			},
 			(result) => {
 				applyEventEdit(this.app, ev.file, ev.type, {
 					title: result.title,
@@ -787,6 +800,7 @@ export class CalendarView extends ItemView {
 					remind: result.remind,
 					cost: result.cost,
 					invoiceReminder: result.invoiceReminder,
+					income: result.income,
 				}).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
