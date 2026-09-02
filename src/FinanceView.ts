@@ -12,6 +12,7 @@ import {
 } from "./data";
 import type { RecurKind } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
+import type { DropdownValue } from "./eventEditorUI";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
@@ -20,15 +21,24 @@ import type { CompanionSettings } from "./settings";
 
 export const VIEW_TYPE_FINANCE = "companion-finance-view";
 
+// Finance's own "+ New item" only ever wants to create one of these three --
+// unlike the Calendar's "+", which is a genuine choice across every
+// convertible type, anything created from Finance is inherently one of
+// Subscription/Expense/Income by definition of being started from this tab.
+// Offering Meeting/Event/Reminder/Invoice reminder/Task/Post here would just
+// be a way to create the wrong kind of note and have it show up on the
+// calendar instead of in this list -- see openCreate/openEditor below.
+const FINANCE_ALLOWED_TYPES: DropdownValue[] = ["subscription", "expense", "income"];
+
 /**
  * Companion's Finance tab: Subscriptions, Expenses, Income (Reminders) and
  * Income (Invoices), each an ordinary Reminder or Invoice note distinguished
  * purely by which fields are set -- see subscriptions()/expenses()/
  * incomeReminders() below and CompanionReminder/CompanionInvoice in
  * data.ts. No dedicated note type for any of it. Creating and editing all
- * go through the exact same New/Edit item dropdown as the Calendar's own
- * "+" (see openCreate/openEditor below) -- one unified workflow, not a
- * separate one per section.
+ * go through the same New/Edit item modal as the Calendar's own "+" (see
+ * openCreate/openEditor below), just with its type dropdown narrowed to
+ * the three financial types -- see FINANCE_ALLOWED_TYPES above.
  */
 export class FinanceView extends ItemView {
 	private reminders: CompanionReminder[] = [];
@@ -118,6 +128,7 @@ export class FinanceView extends ItemView {
 				this.render();
 			}
 		);
+		this.renderOverview(root);
 		this.renderMonthlyRunRate(root);
 		this.renderSubscriptions(root);
 		this.renderExpenses(root);
@@ -133,6 +144,58 @@ export class FinanceView extends ItemView {
 		const addBtn = actions.createEl("button", { cls: "companion-icon-btn companion-icon-btn-accent mod-cta", attr: { "aria-label": "New item" } });
 		setIcon(addBtn, "plus");
 		addBtn.onclick = () => this.openCreate();
+	}
+
+	/** Every invoice's amount, bucketed by currency symbol -- the running
+	 * total ever raised, and the subset of it actually marked paid. Shared
+	 * by renderIncome() (the Invoiced section's own header line) and
+	 * renderOverview() below, so the two can never drift apart. */
+	private invoiceTotals(): { total: Map<string, number>; paid: Map<string, number> } {
+		const total = new Map<string, number>();
+		const paid = new Map<string, number>();
+		for (const inv of this.invoices) {
+			if (inv.amount == null) continue;
+			const key = inv.currencySymbol || "£";
+			total.set(key, (total.get(key) ?? 0) + inv.amount);
+			if (inv.paid) paid.set(key, (paid.get(key) ?? 0) + inv.amount);
+		}
+		return { total, paid };
+	}
+
+	/** "To date" -- money actually in hand (paid invoices + one-off Income)
+	 * against money actually out (one-off Expenses), netted. Deliberately
+	 * excludes recurring Subscriptions/Income: Companion only tracks a
+	 * recurring item's *next* due date, not how many periods have actually
+	 * elapsed and been paid since it started, so a running total for those
+	 * would be a guess dressed up as a fact -- the Recurring run-rate line
+	 * below covers them instead, as a forward-looking monthly figure, not a
+	 * total. £ only for Expenses/Income (see CompanionEvent.income) -- a $
+	 * total from invoices, if there is one, is reported alongside rather
+	 * than merged into a total that would mean nothing without an exchange
+	 * rate. Hidden entirely when there's nothing to report at all. */
+	private renderOverview(parent: HTMLElement): void {
+		const { paid: paidInvoices } = this.invoiceTotals();
+		const paidGBP = paidInvoices.get("£") ?? 0;
+		const otherPaid = [...paidInvoices.entries()].filter(([sym]) => sym !== "£");
+
+		const oneOffIncome = this.incomeReminders()
+			.filter((r) => !r.recur)
+			.reduce((sum, r) => sum + (r.cost ?? 0), 0);
+		const oneOffExpenses = this.expenses().reduce((sum, r) => sum + (r.cost ?? 0), 0);
+		const income = paidGBP + oneOffIncome;
+
+		if (income === 0 && oneOffExpenses === 0 && otherPaid.length === 0) return;
+
+		const net = income - oneOffExpenses;
+		const netText = net === 0 ? "break-even" : `net £${Math.abs(net).toFixed(2)} ${net > 0 ? "in" : "out"}`;
+		const otherPaidText = otherPaid.length
+			? ` (+ ${otherPaid.map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ")} invoiced, paid)`
+			: "";
+
+		parent.createDiv({
+			cls: "companion-finance-overview",
+			text: `To date: £${income.toFixed(2)} in, £${oneOffExpenses.toFixed(2)} out — ${netText}${otherPaidText}`,
+		});
 	}
 
 	/** A one-line "how much moves every month" figure -- Subscriptions'
@@ -376,14 +439,7 @@ export class FinanceView extends ItemView {
 			return;
 		}
 
-		const totals = new Map<string, number>();
-		const paidTotals = new Map<string, number>();
-		for (const inv of items) {
-			if (inv.amount == null) continue;
-			const key = inv.currencySymbol || "£";
-			totals.set(key, (totals.get(key) ?? 0) + inv.amount);
-			if (inv.paid) paidTotals.set(key, (paidTotals.get(key) ?? 0) + inv.amount);
-		}
+		const { total: totals, paid: paidTotals } = this.invoiceTotals();
 		const totalText = [...totals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
 		const paidText = [...paidTotals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
 
@@ -425,39 +481,49 @@ export class FinanceView extends ItemView {
 		}
 	}
 
-	/** Opens the exact same shared New/Edit item modal as the Calendar's
-	 * own "+" -- full type dropdown (Meeting/Event/Reminder/Subscription/
-	 * Invoice reminder/Income/Task/Post), not a Finance-specific locked
-	 * one. Whatever's picked is created the normal way; if it lands as a
-	 * Subscription, Expense or Income, it shows up here on refresh -- if
-	 * not, it simply doesn't, same as creating it from the Calendar would.
-	 * One workflow, entered from either tab. */
+	/** Opens the same shared New item modal as the Calendar's own "+", but
+	 * with its type dropdown narrowed to Subscription/Expense/Income only
+	 * (see FINANCE_ALLOWED_TYPES above) -- anything created from Finance is
+	 * one of the three by definition, so there's no reason to also offer
+	 * Meeting/Event/Reminder/Invoice reminder/Task/Post here. Cost is
+	 * required for all three (enforced by the modal itself), so whatever's
+	 * created always lands in one of subscriptions()/expenses()/
+	 * incomeReminders() on refresh. */
 	private openCreate(): void {
-		new EventEditorModal(this.app, "create", { title: "", type: "reminder", date: formatDate(new Date()), timeStr: "00:00" }, (result) => {
-			createQuickNote(
-				this.app,
-				result.type,
-				result.date,
-				result.title,
-				result.allDay ? "00:00" : result.startTime,
-				result.allDay ? undefined : result.endTime,
-				result.client,
-				result.recur,
-				result.cost,
-				result.invoiceReminder,
-				result.remind,
-				result.income
-			).then(
-				() => this.refresh(),
-				(err: Error) => new Notice(err.message)
-			);
-		}).open();
+		new EventEditorModal(
+			this.app,
+			"create",
+			{ title: "", type: "reminder", date: formatDate(new Date()), timeStr: "00:00" },
+			(result) => {
+				createQuickNote(
+					this.app,
+					result.type,
+					result.date,
+					result.title,
+					result.allDay ? "00:00" : result.startTime,
+					result.allDay ? undefined : result.endTime,
+					result.client,
+					result.recur,
+					result.cost,
+					result.invoiceReminder,
+					result.remind,
+					result.income
+				).then(
+					() => this.refresh(),
+					(err: Error) => new Notice(err.message)
+				);
+			},
+			undefined,
+			FINANCE_ALLOWED_TYPES
+		).open();
 	}
 
 	/** Opens the shared editor modal on an existing Subscription, Expense
-	 * or Income reminder -- same dropdown-enabled modal the Calendar uses
-	 * for its own items, so changing Repeat/Cost/the Income flag (or the
-	 * type entirely) here behaves identically to doing it from there. */
+	 * or Income reminder -- same modal the Calendar uses for its own items,
+	 * with the same Subscription/Expense/Income-only dropdown as
+	 * openCreate() above, so changing Repeat/Cost/the Income flag (or
+	 * switching between the three) here behaves identically to creating
+	 * one, just pre-filled. */
 	private openEditor(reminder: CompanionReminder): void {
 		new EventEditorModal(
 			this.app,
@@ -490,7 +556,9 @@ export class FinanceView extends ItemView {
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
 				);
-			}
+			},
+			undefined,
+			FINANCE_ALLOWED_TYPES
 		).open();
 	}
 }

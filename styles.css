@@ -985,6 +985,13 @@
 	gap: 4px;
 }
 
+.companion-finance-overview {
+	font-size: 0.95em;
+	color: var(--text-normal);
+	font-weight: 600;
+	margin-bottom: 2px;
+}
+
 .companion-finance-run-rate {
 	font-size: 0.85em;
 	color: var(--text-muted);
