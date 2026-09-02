@@ -392,7 +392,8 @@ function periodSuffix(kind: RecurKind): string {
 	if (kind === "daily") return "day";
 	if (kind === "weekly") return "week";
 	if (kind === "monthly") return "mo";
-	return "yr";
+	if (kind === "yearly") return "yr";
+	return "2yr";
 }
 
 function byDate(a: CompanionReminder, b: CompanionReminder): number {

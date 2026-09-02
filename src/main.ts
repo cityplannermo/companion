@@ -5,10 +5,20 @@ import { FinanceView, VIEW_TYPE_FINANCE } from "./FinanceView";
 import { RemindersView, VIEW_TYPE_REMINDERS } from "./RemindersView";
 import { TaskBoardView, VIEW_TYPE_TASKS } from "./TaskBoardView";
 import { TimeView, VIEW_TYPE_TIME } from "./TimeView";
-import { buildIndex, CompanionEventType, createQuickNote, getRunningTimeEntry, HOVER_SOURCE, startTimeEntry, stopTimeEntry } from "./data";
+import {
+	buildIndex,
+	CompanionEventType,
+	createQuickNote,
+	getRecurringOccurrences,
+	getRunningTimeEntry,
+	HOVER_SOURCE,
+	startTimeEntry,
+	stopTimeEntry,
+} from "./data";
 import { EventEditorModal } from "./eventEditorUI";
 import { InvoiceGeneratorModal } from "./invoiceUI";
-import { formatDate, formatElapsedMs } from "./dates";
+import { openNote } from "./openHandlers";
+import { addDays, formatDate, formatElapsedMs } from "./dates";
 import { CompanionSettings, CompanionSettingTab, DEFAULT_SETTINGS } from "./settings";
 import { StartTimerModal } from "./timerUI";
 
@@ -29,6 +39,13 @@ export default class CompanionPlugin extends Plugin {
 	// the guard against a backlog firing all at once right after plugin load
 	// or after the setting is switched on (see the 5-minute cap below).
 	private lastNotifyCheckMs: number = Date.now();
+	// Advance ("N days before") notifications fire once per item per day --
+	// unlike the exact-start check above, an all-day item has no specific
+	// clock moment to key off, so instead this tracks which items have
+	// already been notified about *today*, keyed by "<lead>:<file path>",
+	// and is emptied whenever the calendar date rolls over.
+	private leadNotifiedToday: Set<string> = new Set();
+	private leadNotifiedDateStr: string = "";
 
 	async onload(): Promise<void> {
 		const saved = (await this.loadData()) as Partial<CompanionSettings> | null;
@@ -46,7 +63,7 @@ export default class CompanionPlugin extends Plugin {
 		// (see DashboardView.ts) -- there's no separate Dashboard tab; this
 		// embed, added to the Daily Note template, is the whole feature.
 		this.registerMarkdownCodeBlockProcessor("companion-dashboard", (_source, el, ctx) => {
-			ctx.addChild(new DashboardEmbed(el, this.app));
+			ctx.addChild(new DashboardEmbed(el, this.app, this.settings));
 		});
 
 		// Lets Ctrl/Cmd+hover on a Companion item trigger Obsidian's own
@@ -147,7 +164,7 @@ export default class CompanionPlugin extends Plugin {
 				new InvoiceGeneratorModal(this.app, this.settings, (file) => {
 					this.refreshOpenViews();
 					new Notice(`Invoice created: ${file.basename}`);
-					void this.app.workspace.getLeaf("tab").openFile(file);
+					openNote(this.app, file);
 				}).open();
 			},
 		});
@@ -184,11 +201,13 @@ export default class CompanionPlugin extends Plugin {
 	}
 
 	/** Fires a desktop notification for anything timed that started since the
-	 * last check. Guarded on both sides: `dueNotifications` off, or no
-	 * `Notification` API (mobile, where isDesktopOnly is false but this API
-	 * doesn't exist) skip entirely; a stale `lastNotifyCheckMs` (plugin just
-	 * loaded, or the setting was just switched on after being off a while)
-	 * is capped to 5 minutes so it can't fire a whole day's backlog at once. */
+	 * last check, plus (if any of the "Remind N before" settings are on)
+	 * advance notice for items dated exactly that far ahead. Guarded on both
+	 * sides: `dueNotifications` off, or no `Notification` API (mobile, where
+	 * isDesktopOnly is false but this API doesn't exist) skip entirely; a
+	 * stale `lastNotifyCheckMs` (plugin just loaded, or the setting was just
+	 * switched on after being off a while) is capped to 5 minutes so it
+	 * can't fire a whole day's backlog at once. */
 	private checkDueNotifications(): void {
 		if (!this.settings.dueNotifications) return;
 		if (typeof Notification === "undefined") return;
@@ -214,6 +233,50 @@ export default class CompanionPlugin extends Plugin {
 			const withinBacklogCap = now - scheduledMs < 5 * 60_000;
 			if (justStarted && withinBacklogCap) {
 				new Notification(`${label}: ${ev.title}`, { body: `Starting now (${ev.time})` });
+			}
+		}
+
+		this.checkLeadNotifications(todayStr);
+	}
+
+	/** Advance notice for items dated 1 day/1 week/1 month ahead, per
+	 * whichever "Remind N before" settings are on. Unlike the exact-start
+	 * check above, this covers all-day items too (a subscription renewal
+	 * reminder is rarely given a specific time), so it can't key off a
+	 * clock moment -- instead each item notifies at most once per lead per
+	 * day, tracked in leadNotifiedToday and reset when the date rolls over. */
+	private checkLeadNotifications(todayStr: string): void {
+		if (todayStr !== this.leadNotifiedDateStr) {
+			this.leadNotifiedDateStr = todayStr;
+			this.leadNotifiedToday.clear();
+		}
+
+		const leads: { key: keyof CompanionSettings; days: number; label: string }[] = [
+			{ key: "notifyDayBefore", days: 1, label: "Tomorrow" },
+			{ key: "notifyWeekBefore", days: 7, label: "In 1 week" },
+			{ key: "notifyMonthBefore", days: 30, label: "In 1 month" },
+		];
+
+		const index = buildIndex(this.app);
+		for (const lead of leads) {
+			if (!this.settings[lead.key]) continue;
+
+			const targetDateStr = formatDate(addDays(new Date(), lead.days));
+			const items = [
+				...(index.get(targetDateStr) ?? []),
+				...getRecurringOccurrences(this.app, targetDateStr, targetDateStr),
+			];
+
+			for (const item of items) {
+				const label = NOTIFY_LABELS[item.type];
+				if (!label) continue; // invoices don't notify
+				if (item.status === "Done") continue;
+
+				const dedupKey = `${lead.key}:${item.file.path}:${item.date}`;
+				if (this.leadNotifiedToday.has(dedupKey)) continue;
+				this.leadNotifiedToday.add(dedupKey);
+
+				new Notification(`${label}: ${item.title}`, { body: `${lead.label} (${targetDateStr})` });
 			}
 		}
 	}

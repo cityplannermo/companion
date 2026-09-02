@@ -132,19 +132,22 @@ function firstEventType(tags: string[]): CompanionEventType | null {
 // turns it into its own note, via materialiseOccurrence()/
 // skipRecurringOccurrence(). See "Recurring events" in Companion.md's
 // roadmap for the fuller reasoning.
-export type RecurKind = "daily" | "weekly" | "monthly" | "yearly";
+export type RecurKind = "daily" | "weekly" | "monthly" | "yearly" | "biennial";
 
 export function parseRecur(value: unknown): RecurKind | null {
 	if (typeof value !== "string") return null;
 	const raw = value.trim().toLowerCase();
-	return raw === "daily" || raw === "weekly" || raw === "monthly" || raw === "yearly" ? raw : null;
+	return raw === "daily" || raw === "weekly" || raw === "monthly" || raw === "yearly" || raw === "biennial"
+		? raw
+		: null;
 }
 
 export function recurLabel(kind: RecurKind): string {
 	if (kind === "daily") return "Daily";
 	if (kind === "weekly") return "Weekly";
 	if (kind === "monthly") return "Monthly";
-	return "Yearly";
+	if (kind === "yearly") return "Yearly";
+	return "Every 2 years";
 }
 
 /** Builds a date -> events index from every markdown file currently in the vault. */
@@ -586,11 +589,16 @@ function* stepOccurrences(anchor: Date, kind: RecurKind, rangeStart: Date, range
 		}
 		return;
 	}
-	// yearly -- same month and day-of-month as the anchor, clamped for a
-	// 29 Feb anchor in a non-leap year.
+	// yearly/biennial -- same month and day-of-month as the anchor, clamped
+	// for a 29 Feb anchor in a non-leap year; biennial additionally skips
+	// every other year so it lands every 2 years from the anchor's own
+	// year (e.g. a subscription renewing once every 2 years).
 	const month = anchor.getMonth();
 	const dayOfMonth = anchor.getDate();
+	const anchorYear = anchor.getFullYear();
+	const yearStep = kind === "biennial" ? 2 : 1;
 	for (let year = rangeStart.getFullYear(); year <= rangeEnd.getFullYear(); year++) {
+		if ((year - anchorYear) % yearStep !== 0) continue;
 		const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
 		const occ = new Date(year, month, Math.min(dayOfMonth, lastDayOfMonth));
 		if (occ >= anchor && occ >= rangeStart && occ <= rangeEnd) yield formatDateStr(occ);
@@ -839,6 +847,7 @@ const OCCURRENCES_PER_MONTH: Record<RecurKind, number> = {
 	weekly: 52 / 12,
 	monthly: 1,
 	yearly: 1 / 12,
+	biennial: 1 / 24,
 };
 
 export function monthlyEquivalentCost(cost: number, kind: RecurKind): number {
@@ -860,7 +869,7 @@ function nextOccurrenceDate(current: Date, kind: RecurKind): Date {
 		const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
 		return new Date(next.getFullYear(), next.getMonth(), Math.min(day, lastDay));
 	}
-	const nextYear = current.getFullYear() + 1;
+	const nextYear = current.getFullYear() + (kind === "biennial" ? 2 : 1);
 	const lastDay = new Date(nextYear, current.getMonth() + 1, 0).getDate();
 	return new Date(nextYear, current.getMonth(), Math.min(day, lastDay));
 }

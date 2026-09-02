@@ -1,5 +1,19 @@
-import { App, TFile } from "obsidian";
+import { App, Platform, TFile } from "obsidian";
 import { HOVER_SOURCE } from "./data";
+
+/**
+ * Opens `file` the way Companion always opens a note from one of its own
+ * views: a new tab on desktop, so the view stays exactly where it was --
+ * but on mobile, into the current leaf instead, so the file lands in the
+ * *same* navigation stack the view itself is in. Obsidian's own back
+ * gesture/hardware back button on mobile steps back through a leaf's own
+ * history, not across separate tabs; opening in a new tab there leaves
+ * that fresh tab with nothing to go back to. Desktop keeps the new-tab
+ * behaviour, since a leaf's multi-tab layout there is exactly the point.
+ */
+export function openNote(app: App, file: TFile): void {
+	void app.workspace.getLeaf(Platform.isMobile ? false : "tab").openFile(file);
+}
 
 export interface OpenableOptions {
 	/** Called instead of opening the note when Shift+click fires, or when a
@@ -23,9 +37,11 @@ export interface OpenableOptions {
  * card or list row's title) with two ways to reach it, kept deliberately
  * simple:
  *
- * - Click (or tap) opens the note in a new tab, leaving this view in place
- *   -- unless a multi-selection is already under way (isSelecting), in
- *   which case it toggles this item's selection instead.
+ * - Click (or tap) opens the note via openNote() above -- a new tab on
+ *   desktop, leaving this view in place; the current leaf on mobile, so
+ *   the hardware back button/gesture returns to this view -- unless a
+ *   multi-selection is already under way (isSelecting), in which case it
+ *   toggles this item's selection instead.
  * - Ctrl/Cmd+hover triggers Obsidian's own Page preview popup (if the
  *   core "Page preview" plugin is enabled), which supports reading and
  *   light editing without leaving this view.
@@ -50,7 +66,7 @@ export function makeOpenable(app: App, el: HTMLElement, file: TFile, opts: Opena
 			opts.onToggleSelect();
 			return;
 		}
-		void app.workspace.getLeaf("tab").openFile(file);
+		openNote(app, file);
 	};
 
 	el.addEventListener("mouseover", (e) => {

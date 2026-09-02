@@ -18,7 +18,7 @@ import { EventEditorModal } from "./eventEditorUI";
 import { recurLabel } from "./data";
 import { addDays, formatDate, parseDate, addMonths, startOfWeek, truncate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
-import { makeOpenable } from "./openHandlers";
+import { makeOpenable, openNote } from "./openHandlers";
 import { Selection } from "./selection";
 import type { CompanionSettings } from "./settings";
 
@@ -862,7 +862,7 @@ export class CalendarView extends ItemView {
 		materialiseOccurrence(this.app, ev.virtualOf, ev.date).then(
 			(file) => {
 				this.refresh();
-				void this.app.workspace.getLeaf("tab").openFile(file);
+				openNote(this.app, file);
 			},
 			(err: Error) => new Notice(err.message)
 		);

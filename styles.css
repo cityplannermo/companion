@@ -64,7 +64,7 @@
 	border: none;
 	color: var(--text-muted);
 	cursor: pointer;
-	padding: 4px;
+	padding: 8px;
 	border-radius: 4px;
 }
 
@@ -74,8 +74,8 @@
 }
 
 .companion-icon-btn svg {
-	width: 14px;
-	height: 14px;
+	width: 16px;
+	height: 16px;
 	display: block;
 }
 
@@ -349,8 +349,8 @@
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
-	border-radius: 5px;
-	padding: 4px 10px;
+	border-radius: 6px;
+	padding: 7px 12px;
 	cursor: pointer;
 	font-size: 0.85em;
 }
@@ -481,8 +481,8 @@
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
-	border-radius: 4px;
-	padding: 1px 7px;
+	border-radius: 6px;
+	padding: 7px 12px;
 	cursor: pointer;
 	font-size: 0.8em;
 	line-height: 1.4;
@@ -717,6 +717,7 @@
 	cursor: pointer;
 	flex-shrink: 0;
 	margin-left: 4px;
+	padding: 8px;
 }
 
 .companion-item-rename-btn:hover {
@@ -724,8 +725,8 @@
 }
 
 .companion-item-rename-btn svg {
-	width: 12px;
-	height: 12px;
+	width: 14px;
+	height: 14px;
 }
 
 .companion-quick-create {
@@ -851,6 +852,24 @@
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 6px;
 	background: var(--background-secondary);
+}
+
+.companion-dashboard-header {
+	display: flex;
+	justify-content: flex-end;
+	margin-bottom: 4px;
+}
+
+.companion-dashboard-timer-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin-bottom: 10px;
+}
+
+.companion-dashboard-timer-row .companion-filter-input {
+	flex: 1 1 160px;
 }
 
 .companion-dashboard-running {
@@ -1088,23 +1107,29 @@
 }
 
 .companion-time-play {
-	background: transparent;
-	border: none;
-	color: var(--text-muted);
-	cursor: pointer;
-	padding: 2px 4px;
-	flex-shrink: 0;
 	display: flex;
 	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	background: transparent;
+	border: none;
+	border-radius: 50%;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 0;
+	flex-shrink: 0;
 }
 
 .companion-time-play:hover {
 	color: var(--interactive-accent);
+	background: var(--background-modifier-hover);
 }
 
 .companion-time-play svg {
-	width: 13px;
-	height: 13px;
+	width: 15px;
+	height: 15px;
+	display: block;
 }
 
 .companion-time-chevron {
@@ -1151,8 +1176,8 @@
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
-	border-radius: 5px;
-	padding: 3px 7px;
+	border-radius: 6px;
+	padding: 7px 12px;
 	cursor: pointer;
 	display: flex;
 }
@@ -1192,7 +1217,7 @@
 
 .companion-time-client-row .companion-btn-icon-text {
 	font-size: 0.85em;
-	padding: 2px 8px;
+	padding: 7px 12px;
 }
 
 .companion-time-client-name {
@@ -1223,7 +1248,7 @@
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 5px;
-	padding: 4px 8px;
+	padding: 7px 10px;
 	font-size: 0.85em;
 }
 
@@ -1238,7 +1263,7 @@
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-muted);
 	border-radius: 5px;
-	padding: 4px 8px;
+	padding: 7px 10px;
 	font-size: 0.85em;
 	cursor: pointer;
 }
@@ -1351,56 +1376,18 @@
 		flex-basis: 100%;
 	}
 
-	/* Icon-only buttons -- the sort-direction toggle, the pencil/renew/
-	   snooze glyphs on a row, the Time log's continue button -- were
-	   sized for a mouse pointer (a handful of px of padding around a
-	   14px icon). Comfortable thumb targets instead, still compact next
-	   to the text they sit beside. */
-	.companion-icon-btn {
-		padding: 8px;
-	}
-
-	.companion-icon-btn svg {
-		width: 16px;
-		height: 16px;
-	}
-
-	.companion-item-rename-btn {
-		padding: 8px;
-	}
-
-	.companion-item-rename-btn svg {
-		width: 14px;
-		height: 14px;
-	}
-
+	/* Icon-only buttons, boxed buttons and form fields now get their
+	   comfortable, touch-friendly sizing everywhere (see the base rules
+	   above) -- the round Time log continue button just gets a further
+	   bump here so it's an easy thumb target. */
 	.companion-time-play {
-		padding: 8px;
+		width: 34px;
+		height: 34px;
 	}
 
 	.companion-time-play svg {
-		width: 15px;
-		height: 15px;
-	}
-
-	/* Small boxed buttons -- task board move-controls, the Report month
-	   nav arrows, the Board/List mode toggle, Unbilled's Invoice button --
-	   get real vertical padding instead of a sliver of one. */
-	.companion-card-controls button,
-	.companion-list-row-controls button,
-	.companion-mode-toggle button,
-	.companion-time-month-nav button,
-	.companion-time-client-row .companion-btn-icon-text {
-		padding: 7px 12px;
-	}
-
-	/* Text/date/select fields: match the buttons beside them rather than
-	   looking visibly thinner. */
-	.companion-filter-input,
-	.companion-sort-select,
-	.companion-jump-date,
-	.companion-mode-select {
-		padding: 7px 10px;
+		width: 17px;
+		height: 17px;
 	}
 }
 
@@ -1410,7 +1397,7 @@
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 5px;
-	padding: 3px 6px;
+	padding: 7px 10px;
 	font-size: 0.85em;
 }
 
@@ -1421,7 +1408,7 @@
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 5px;
-	padding: 4px 8px;
+	padding: 7px 10px;
 	font-size: 0.85em;
 	cursor: pointer;
 }

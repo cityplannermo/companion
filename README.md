@@ -17,7 +17,7 @@ Any markdown note with:
 - `tags:` including one of `meeting`, `reminder`, `task`, `event`, `invoice`, `time`
 - `date:` as a Date & time property (`YYYY-MM-DD` also still parses, for compatibility) — a task note without a date still appears on the task board, just without one on its card
 - `end:` (same Date & time shape), optional, on a Meeting/Reminder/Task/Event/Invoice — gives it a duration, shown as a sized block on the Week/Day calendar grid instead of a single pill
-- `recur:` (`daily`/`weekly`/`monthly`/`yearly`), optional, on a Meeting/Reminder/Task/Event — makes it a repeating series, projected forward on the calendar from its one real note (see **Repeating events** below)
+- `recur:` (`daily`/`weekly`/`monthly`/`yearly`/`biennial`), optional, on a Meeting/Reminder/Task/Event — makes it a repeating series, projected forward on the calendar from its one real note (see **Repeating events** below)
 - `cost:` (a number, £ per period), optional, on a Reminder — combined with `recur:` this is a Subscription; on its own, without `recur:`, it's a one-off Expense. Both show up in the Finance tab, not just the calendar.
 - `invoiceReminder: true`, optional, on a repeating Reminder — shows it with the same pill colour as an Invoice, as a nudge to go generate one that day; it doesn't create an invoice itself
 - For the client dropdown in the Start Timer prompt (and the Meeting/invoice client fields): any note tagged `client` — its filename is what shows up as an option. No `client`-tagged notes yet means an empty dropdown, not an error; you can still type a client name freely.
@@ -56,7 +56,7 @@ A `Subscription` note template is available under Templates for typing one in by
 
 ## Daily Note summary
 
-A fenced ```` ```companion-dashboard``` ```` code block, placed anywhere in a note (typically a Daily Note template), renders a live running-timer card plus today's agenda, overdue items and items due soon — no separate tab, just an embed that updates itself as the underlying notes change.
+A fenced ```` ```companion-dashboard``` ```` code block, placed anywhere in a note (typically a Daily Note template), renders a live timer, today's agenda, overdue items and items due soon — no separate tab, just an embed that updates itself as the underlying notes change. A **+** button quick-creates a Task/Reminder/Event/Meeting via the same editor the calendar uses; a "What are you working on?" field, client dropdown and Start button track time inline without opening the Time tab, and recent past entries fold out below with a continue button per row. Today/Overdue/Due this week/Recent time entries each fold, so the embed only takes up as much of the note as you want it to.
 
 ## Usage
 
@@ -64,7 +64,7 @@ A fenced ```` ```companion-dashboard``` ```` code block, placed anywhere in a no
 2. Open the calendar (compass icon, or command palette: **Open calendar**). A **Month/Week/Day** dropdown switches views; the arrows and **Today** move by whatever unit is showing. In Month view, click a day to see its agenda — drag the thin handle between the calendar and the agenda to resize it, or use the panel icon to collapse it entirely. Week and Day views trade the agenda for an hourly grid with a red current-time line instead (set **Calendar timezone** in settings to see times in a zone other than the device's own) -- it already shows each day's items in full, so the agenda panel isn't offered alongside it.
 3. Open the task board (checklist icon, or **Open task board**), reminders (bell icon, or **Open reminders**), Finance (wallet icon, or **Open finance**), or the time tracker (timer icon, or **Open time tracker**).
 4. **New item** (command palette) opens the shared editor from anywhere, without opening a view first — handy on mobile.
-5. Settings → Community plugins → Wiki Companion: a daily time goal, rounding time entries, confirming before delete, which day the week starts on, a **Calendar timezone** override, **Notify when something starts** (an optional desktop notification when a timed item's start arrives), and, under **Invoicing**, your own business and payment details used when generating an invoice.
+5. Settings → Community plugins → Wiki Companion: a daily time goal, rounding time entries, confirming before delete, which day the week starts on, a **Calendar timezone** override, **Notify when something starts** (an optional desktop notification when a timed item's start arrives) plus **Advance reminders** -- 1 day/1 week/1 month before, which (unlike the start-time notification) also cover all-day items -- and, under **Invoicing**, your own business and payment details used when generating an invoice.
 
 ## Installation
 

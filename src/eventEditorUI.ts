@@ -8,6 +8,7 @@ const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
 	{ value: "weekly", label: recurLabel("weekly") },
 	{ value: "monthly", label: recurLabel("monthly") },
 	{ value: "yearly", label: recurLabel("yearly") },
+	{ value: "biennial", label: recurLabel("biennial") },
 ];
 
 // "Subscription" and "Invoice reminder" aren't real note types -- both are
