@@ -35,6 +35,7 @@ export interface CompanionEvent {
 	status?: string;
 	client?: string; // unwrapped from the [[wikilink]] -- set only on a Meeting, powers the calendar's edit modal
 	recur?: RecurKind; // set when this note is itself a recurring series' anchor
+	remind?: RemindLead; // set when this note wants an advance-notice desktop notification ahead of its own date
 	cost?: number; // GBP, meaningful only when type === "reminder" -- what makes it a subscription
 	invoiceReminder?: boolean; // meaningful only when type === "reminder" -- shows with the Invoice pill colour on the calendar (see CalendarView's visualType), without being a real Invoice
 	// Set only on a *projected* occurrence (see getRecurringOccurrences below) --
@@ -150,6 +151,26 @@ export function recurLabel(kind: RecurKind): string {
 	return "Every 2 years";
 }
 
+// A per-item advance-reminder lead time -- set on a Meeting/Event/Reminder/
+// Task's own `remind` field via the shared editor modal, alongside `recur`.
+// Unlike the exact-start "Notify when something starts" desktop
+// notification (timed items only), this fires ahead of the item's own
+// date regardless of whether it has a specific time set -- see
+// checkLeadNotifications() in main.ts.
+export type RemindLead = "1d" | "1w" | "1m";
+
+export function parseRemindLead(value: unknown): RemindLead | null {
+	if (typeof value !== "string") return null;
+	const raw = value.trim().toLowerCase();
+	return raw === "1d" || raw === "1w" || raw === "1m" ? raw : null;
+}
+
+export function remindLeadLabel(lead: RemindLead): string {
+	if (lead === "1d") return "1 day before";
+	if (lead === "1w") return "1 week before";
+	return "1 month before";
+}
+
 /** Builds a date -> events index from every markdown file currently in the vault. */
 export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 	const index = new Map<string, CompanionEvent[]>();
@@ -175,6 +196,7 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 			status: typeof frontmatter["status"] === "string" ? frontmatter["status"] : undefined,
 			client: type === "meeting" ? (unwrapWikilink(frontmatter["client"]) ?? undefined) : undefined,
 			recur: parseRecur(frontmatter["recur"]) ?? undefined,
+			remind: parseRemindLead(frontmatter["remind"]) ?? undefined,
 			cost: type === "reminder" && typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
 			invoiceReminder: type === "reminder" && frontmatter["invoiceReminder"] === true ? true : undefined,
 		};
@@ -353,19 +375,21 @@ function quickCreateFrontmatter(
 	client?: string,
 	recur?: RecurKind | null,
 	cost?: number | null,
-	invoiceReminder?: boolean
+	invoiceReminder?: boolean,
+	remind?: RemindLead | null
 ): string {
 	const endLine = endTimeStr ? `end: ${dateStr}T${endTimeStr}\n` : "";
 	const recurLine = recur ? `recur: ${recur}\n` : "";
+	const remindLine = remind ? `remind: ${remind}\n` : "";
 	if (type === "task") {
-		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}tags:\n  - task\nstatus: To Do\n---\n\n`;
+		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}tags:\n  - task\nstatus: To Do\n---\n\n`;
 	}
 	if (type === "event") {
-		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}tags:\n  - event\n---\n\n`;
+		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}tags:\n  - event\n---\n\n`;
 	}
 	if (type === "meeting") {
 		const clientLine = client?.trim() ? `client: [[${client.trim()}]]\n` : "client:\n";
-		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${clientLine}${recurLine}tags:\n  - meeting\n---\n\n`;
+		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${clientLine}${recurLine}${remindLine}tags:\n  - meeting\n---\n\n`;
 	}
 	// Reminder -- the only type `cost`/`invoiceReminder` are meaningful on
 	// (see CompanionReminder / CompanionEvent.invoiceReminder). A subscription
@@ -376,7 +400,7 @@ function quickCreateFrontmatter(
 	const invoiceReminderLine = invoiceReminder ? `invoiceReminder: true\n` : "";
 	const isSubscription = !!recur && cost != null && cost > 0;
 	const tagsBlock = isSubscription ? `tags:\n  - reminder\n  - subscription\n` : `tags:\n  - reminder\n`;
-	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${costLine}${invoiceReminderLine}${tagsBlock}---\n\n`;
+	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}${costLine}${invoiceReminderLine}${tagsBlock}---\n\n`;
 }
 
 /** Creates a new Reminder, Task, Event or Meeting note dated to `dateStr`,
@@ -399,7 +423,8 @@ export async function createQuickNote(
 	client?: string,
 	recur?: RecurKind | null,
 	cost?: number | null,
-	invoiceReminder?: boolean
+	invoiceReminder?: boolean,
+	remind?: RemindLead | null
 ): Promise<TFile> {
 	const safe = sanitiseFilename(title);
 	if (!safe) throw new Error("A title is needed to create a note.");
@@ -408,7 +433,7 @@ export async function createQuickNote(
 	if (app.vault.getAbstractFileByPath(path)) {
 		throw new Error(`A note already exists at "${path}".`);
 	}
-	return app.vault.create(path, quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder));
+	return app.vault.create(path, quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder, remind));
 }
 
 function replaceTypeTag(fm: Record<string, unknown>, oldTag: string, newTag: string): void {
@@ -434,6 +459,7 @@ export interface EventEditFields {
 	endTimeStr?: string; // undefined removes any existing `end`
 	client?: string; // meaningful only when type === "meeting"
 	recur?: RecurKind | null; // null/undefined clears any existing recurrence (and its exceptions)
+	remind?: RemindLead | null; // null/undefined clears any existing advance reminder
 	cost?: number | null; // meaningful only when type === "reminder"; null/undefined clears it
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"; falsy clears it
 }
@@ -502,6 +528,8 @@ export async function applyEventEdit(app: App, file: TFile, oldType: CompanionEv
 			delete fm["recurExceptions"]; // orphaned once there's no rule left to except from
 			delete fm["recurUntil"];
 		}
+		if (fields.remind) fm["remind"] = fields.remind;
+		else delete fm["remind"];
 		if (fields.type === "reminder" && fields.cost != null && fields.cost > 0) fm["cost"] = fields.cost;
 		else delete fm["cost"];
 		if (fields.type === "reminder" && fields.invoiceReminder) fm["invoiceReminder"] = true;
@@ -638,6 +666,7 @@ export function getRecurringOccurrences(app: App, rangeStart: string, rangeEnd: 
 		const endTime = fm["end"] != null ? timeOfDay(fm["end"]) : undefined;
 		const status = typeof fm["status"] === "string" ? fm["status"] : undefined;
 		const client = type === "meeting" ? (unwrapWikilink(fm["client"]) ?? undefined) : undefined;
+		const remind = parseRemindLead(fm["remind"]) ?? undefined;
 		const cost = type === "reminder" && typeof fm["cost"] === "number" ? fm["cost"] : undefined;
 		const invoiceReminder = type === "reminder" && fm["invoiceReminder"] === true ? true : undefined;
 
@@ -661,6 +690,7 @@ export function getRecurringOccurrences(app: App, rangeStart: string, rangeEnd: 
 				status,
 				client,
 				recur: kind,
+				remind,
 				cost,
 				invoiceReminder,
 				virtualOf: file,
@@ -809,6 +839,7 @@ export interface CompanionReminder {
 	date: string | null;
 	time: string; // HH:MM, "00:00" when no specific time was set
 	recur?: RecurKind;
+	remind?: RemindLead; // see CompanionEvent.remind -- carried here too so editing a reminder from the Reminders/Finance views doesn't silently clear it
 	cost?: number; // GBP, only meaningful alongside recur
 	invoiceReminder?: boolean; // see CompanionEvent.invoiceReminder -- carried here too so editing a reminder from the Reminders/Finance views doesn't silently clear the flag
 }
@@ -828,6 +859,7 @@ export function getReminders(app: App): CompanionReminder[] {
 			date: normaliseDate(frontmatter["date"]),
 			time: timeOfDay(frontmatter["date"]),
 			recur: parseRecur(frontmatter["recur"]) ?? undefined,
+			remind: parseRemindLead(frontmatter["remind"]) ?? undefined,
 			cost: typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
 			invoiceReminder: frontmatter["invoiceReminder"] === true ? true : undefined,
 		});
@@ -1090,6 +1122,61 @@ export async function stopTimeEntry(app: App, file: TFile, roundingMinutes = 0):
 		fm["end"] = toMinuteIso(end);
 		fm["duration"] = durationHours;
 	});
+}
+
+/**
+ * Creates an already-completed time entry directly -- for logging a session
+ * that was forgotten at the time, rather than started live. Same note shape
+ * as a live-tracked entry (startTimeEntry/stopTimeEntry write the same
+ * fields in two steps; this writes both `start` and `end` in one go), so it
+ * shows up identically everywhere time entries are read from -- the Time
+ * tab, Finance, the dashboard's Recent time entries, invoice generation.
+ * `startTimeStr`/`endTimeStr` are both "HH:MM" on the same `dateStr` --
+ * this doesn't support an entry spanning midnight.
+ */
+export async function createManualTimeEntry(
+	app: App,
+	description: string,
+	client: string,
+	dateStr: string,
+	startTimeStr: string,
+	endTimeStr: string,
+	roundingMinutes = 0
+): Promise<TFile> {
+	const safeDescription = description.trim();
+	if (!safeDescription) throw new Error("A description is needed to add a time entry.");
+	if (!startTimeStr || !endTimeStr) throw new Error("Both a start and end time are needed.");
+
+	const [sh, sm] = startTimeStr.split(":").map(Number);
+	const start = parseDateStr(dateStr);
+	start.setHours(sh, sm, 0, 0);
+
+	const [eh, em] = endTimeStr.split(":").map(Number);
+	const end = parseDateStr(dateStr);
+	end.setHours(eh, em, 0, 0);
+
+	if (end.getTime() <= start.getTime()) throw new Error("End time must be after start time.");
+
+	const rawHours = (end.getTime() - start.getTime()) / 3600000;
+	const durationHours = roundDurationUp(rawHours, roundingMinutes);
+
+	const titleBase = sanitiseFilename(`${safeDescription} - ${formatDMY(start)}`);
+	let path = `${TIME_FOLDER}/${titleBase}.md`;
+	let n = 2;
+	while (app.vault.getAbstractFileByPath(path)) {
+		path = `${TIME_FOLDER}/${titleBase} (${n}).md`;
+		n++;
+	}
+
+	const file = await app.vault.create(path, `---\ndate: ${dateStr}T00:00\ntags:\n  - time\nclient:\nstart:\nend:\nduration:\n---\n\n`);
+	await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+		fm["description"] = safeDescription;
+		fm["client"] = client.trim() ? `[[${client.trim()}]]` : "";
+		fm["start"] = toMinuteIso(start);
+		fm["end"] = toMinuteIso(end);
+		fm["duration"] = durationHours;
+	});
+	return file;
 }
 
 // Invoice generation. Turns a client's tracked time straight into an

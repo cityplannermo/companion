@@ -15,6 +15,7 @@ import {
 	startTimeEntry,
 	stopTimeEntry,
 } from "./data";
+import type { RemindLead } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
 import { InvoiceGeneratorModal } from "./invoiceUI";
 import { openNote } from "./openHandlers";
@@ -144,7 +145,8 @@ export default class CompanionPlugin extends Plugin {
 						result.client,
 						result.recur,
 						result.cost,
-						result.invoiceReminder
+						result.invoiceReminder,
+						result.remind
 					).then(
 						() => this.refreshOpenViews(),
 						(err: Error) => new Notice(err.message)
@@ -239,9 +241,11 @@ export default class CompanionPlugin extends Plugin {
 		this.checkLeadNotifications(todayStr);
 	}
 
-	/** Advance notice for items dated 1 day/1 week/1 month ahead, per
-	 * whichever "Remind N before" settings are on. Unlike the exact-start
-	 * check above, this covers all-day items too (a subscription renewal
+	/** Advance notice for items dated 1 day/1 week/1 month ahead -- per
+	 * whichever an individual item's own `remind` field asks for (set via
+	 * the shared editor's "Remind" dropdown, alongside Repeat), not a
+	 * blanket setting applied to everything. Unlike the exact-start check
+	 * above, this covers all-day items too (a subscription renewal
 	 * reminder is rarely given a specific time), so it can't key off a
 	 * clock moment -- instead each item notifies at most once per lead per
 	 * day, tracked in leadNotifiedToday and reset when the date rolls over. */
@@ -251,16 +255,14 @@ export default class CompanionPlugin extends Plugin {
 			this.leadNotifiedToday.clear();
 		}
 
-		const leads: { key: keyof CompanionSettings; days: number; label: string }[] = [
-			{ key: "notifyDayBefore", days: 1, label: "Tomorrow" },
-			{ key: "notifyWeekBefore", days: 7, label: "In 1 week" },
-			{ key: "notifyMonthBefore", days: 30, label: "In 1 month" },
+		const leads: { key: RemindLead; days: number; label: string }[] = [
+			{ key: "1d", days: 1, label: "Tomorrow" },
+			{ key: "1w", days: 7, label: "In 1 week" },
+			{ key: "1m", days: 30, label: "In 1 month" },
 		];
 
 		const index = buildIndex(this.app);
 		for (const lead of leads) {
-			if (!this.settings[lead.key]) continue;
-
 			const targetDateStr = formatDate(addDays(new Date(), lead.days));
 			const items = [
 				...(index.get(targetDateStr) ?? []),
@@ -268,6 +270,7 @@ export default class CompanionPlugin extends Plugin {
 			];
 
 			for (const item of items) {
+				if (item.remind !== lead.key) continue; // only items that asked for this specific lead
 				const label = NOTIFY_LABELS[item.type];
 				if (!label) continue; // invoices don't notify
 				if (item.status === "Done") continue;

@@ -14,10 +14,7 @@ export interface CompanionSettings {
 	agendaWidthPx: number; // drag-resized width of the calendar's agenda sidebar -- not surfaced in this tab, just persisted
 	agendaCollapsed: boolean; // calendar's agenda sidebar hidden via its own collapse button -- not surfaced in this tab, just persisted
 	calendarTimezone: string; // IANA zone name (e.g. "Europe/London"); blank = use this device's own timezone
-	dueNotifications: boolean; // fire a desktop notification when a timed Reminder/Task/Event/Meeting starts; off by default
-	notifyDayBefore: boolean; // also notify 1 day ahead of a dated Reminder/Task/Event/Meeting -- off by default
-	notifyWeekBefore: boolean; // also notify 1 week ahead -- off by default
-	notifyMonthBefore: boolean; // also notify 1 month (30 days) ahead -- off by default
+	dueNotifications: boolean; // fire a desktop notification when a timed Reminder/Task/Event/Meeting starts; off by default. Per-item advance reminders (1 day/week/month before) are set on each item's own "Remind" field instead of here -- see RemindLead in data.ts.
 
 	// Invoicing -- Mo's own details are constant across every invoice, so
 	// they live here rather than being retyped (or copied off a previous
@@ -43,9 +40,6 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
 	agendaCollapsed: false,
 	calendarTimezone: "",
 	dueNotifications: false,
-	notifyDayBefore: false,
-	notifyWeekBefore: false,
-	notifyMonthBefore: false,
 
 	myName: "",
 	myAddress: "",
@@ -144,34 +138,10 @@ export class CompanionSettingTab extends PluginSettingTab {
 			},
 			{
 				name: "Notify when something starts",
-				desc: "Fires a desktop notification when a timed Reminder, Task, Event or Meeting's start time arrives. Off by default. All-day items (no specific time set) never notify.",
+				desc: "Fires a desktop notification when a timed Reminder, Task, Event or Meeting's start time arrives. Off by default. All-day items (no specific time set) never notify. Advance reminders (1 day/week/month before) are set per item, via the \"Remind\" field in the New/Edit item dialog.",
 				control: {
 					type: "toggle",
 					key: "dueNotifications",
-				},
-			},
-			{
-				name: "Remind 1 day before",
-				desc: "Also notify a day ahead of a dated Reminder, Task, Event or Meeting -- unlike \"Notify when something starts\" above, this works for all-day items too.",
-				control: {
-					type: "toggle",
-					key: "notifyDayBefore",
-				},
-			},
-			{
-				name: "Remind 1 week before",
-				desc: "Also notify a week ahead.",
-				control: {
-					type: "toggle",
-					key: "notifyWeekBefore",
-				},
-			},
-			{
-				name: "Remind 1 month before",
-				desc: "Also notify a month (30 days) ahead -- handy for a yearly or biennial subscription renewal.",
-				control: {
-					type: "toggle",
-					key: "notifyMonthBefore",
 				},
 			},
 			{
@@ -328,45 +298,11 @@ export class CompanionSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Notify when something starts")
 			.setDesc(
-				"Fires a desktop notification when a timed Reminder, Task, Event or Meeting's start time arrives. Off by default. All-day items (no specific time set) never notify."
+				'Fires a desktop notification when a timed Reminder, Task, Event or Meeting\'s start time arrives. Off by default. All-day items (no specific time set) never notify. Advance reminders (1 day/week/month before) are set per item, via the "Remind" field in the New/Edit item dialog.'
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.dueNotifications).onChange((value) => {
 					this.plugin.settings.dueNotifications = value;
-					void this.plugin.saveSettings();
-				})
-			);
-
-		new Setting(containerEl).setName("Advance reminders").setHeading();
-
-		new Setting(containerEl)
-			.setName("Remind 1 day before")
-			.setDesc(
-				'Also notify a day ahead of a dated Reminder, Task, Event or Meeting -- unlike "Notify when something starts" above, this works for all-day items too.'
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.notifyDayBefore).onChange((value) => {
-					this.plugin.settings.notifyDayBefore = value;
-					void this.plugin.saveSettings();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Remind 1 week before")
-			.setDesc("Also notify a week ahead.")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.notifyWeekBefore).onChange((value) => {
-					this.plugin.settings.notifyWeekBefore = value;
-					void this.plugin.saveSettings();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName("Remind 1 month before")
-			.setDesc("Also notify a month (30 days) ahead -- handy for a yearly or biennial subscription renewal.")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.notifyMonthBefore).onChange((value) => {
-					this.plugin.settings.notifyMonthBefore = value;
 					void this.plugin.saveSettings();
 				})
 			);

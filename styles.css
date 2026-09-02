@@ -855,10 +855,11 @@
 	background: var(--background-secondary);
 }
 
-.companion-dashboard-header {
+.companion-dashboard-timer-header {
 	display: flex;
-	justify-content: flex-end;
-	margin-bottom: 4px;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 6px;
 }
 
 .companion-dashboard-timer-row {
@@ -892,6 +893,13 @@
 	margin: 0 0 6px 0;
 	font-size: 0.95em;
 	color: var(--text-muted);
+}
+
+/* Beats companion-dashboard-section h3's own margin above by coming later
+   in the cascade -- the heading sits in a flex row with the "+" button,
+   so its own bottom margin would just add extra space under the row. */
+.companion-dashboard-timer-header h3 {
+	margin: 0;
 }
 
 .companion-dashboard-client {

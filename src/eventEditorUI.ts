@@ -1,6 +1,6 @@
 import { App, Modal } from "obsidian";
-import { getClientNames, recurLabel } from "./data";
-import type { CompanionEventType, QuickCreateType, RecurKind } from "./data";
+import { getClientNames, recurLabel, remindLeadLabel } from "./data";
+import type { CompanionEventType, QuickCreateType, RecurKind, RemindLead } from "./data";
 
 const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
 	{ value: "", label: "Never" },
@@ -9,6 +9,13 @@ const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
 	{ value: "monthly", label: recurLabel("monthly") },
 	{ value: "yearly", label: recurLabel("yearly") },
 	{ value: "biennial", label: recurLabel("biennial") },
+];
+
+const REMIND_OPTIONS: { value: RemindLead | ""; label: string }[] = [
+	{ value: "", label: "None" },
+	{ value: "1d", label: remindLeadLabel("1d") },
+	{ value: "1w", label: remindLeadLabel("1w") },
+	{ value: "1m", label: remindLeadLabel("1m") },
 ];
 
 // "Subscription" and "Invoice reminder" aren't real note types -- both are
@@ -59,6 +66,7 @@ export interface EventEditorResult {
 	endTime?: string; // "HH:MM", optional even when timed
 	client: string; // only meaningful when type === "meeting"; "" otherwise
 	recur: RecurKind | null; // null = doesn't repeat
+	remind: RemindLead | null; // null = no advance reminder
 	cost: number | null; // only meaningful when type === "reminder"; null = not a subscription
 	invoiceReminder: boolean; // only meaningful when type === "reminder" -- see DropdownValue above
 }
@@ -71,6 +79,7 @@ export interface EventEditorInitial {
 	endTimeStr?: string;
 	client?: string;
 	recur?: RecurKind; // absent/undefined = doesn't repeat
+	remind?: RemindLead; // absent/undefined = no advance reminder
 	cost?: number; // meaningful only when type === "reminder"
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"
 }
@@ -173,6 +182,19 @@ export class EventEditorModal extends Modal {
 		}
 		if (isInvoice) recurRow.addClass("companion-hidden");
 
+		// Advance reminder -- an optional desktop notification ahead of this
+		// item's own date, independent of "Notify when something starts"
+		// (which only fires at the exact start time). Same visibility rule
+		// as Repeat above: every real type gets one, an Invoice doesn't.
+		const remindRow = contentEl.createDiv({ cls: "companion-event-editor-recur-row" });
+		remindRow.createSpan({ text: "Remind: " });
+		const remindSelect = remindRow.createEl("select");
+		for (const opt of REMIND_OPTIONS) {
+			const el = remindSelect.createEl("option", { text: opt.label, value: opt.value });
+			if (opt.value === (this.initial.remind ?? "")) el.selected = true;
+		}
+		if (isInvoice) remindRow.addClass("companion-hidden");
+
 		// Cost only means anything on a Reminder -- what makes one a
 		// subscription, alongside Repeat, in the Reminders view's own
 		// running total. Shown/hidden the same way the client row is.
@@ -261,6 +283,7 @@ export class EventEditorModal extends Modal {
 				endTime: !allDay && endInput.value ? endInput.value : undefined,
 				client: clientInput.value,
 				recur: (recurSelect.value || null) as RecurKind | null,
+				remind: (remindSelect.value || null) as RemindLead | null,
 				cost: costInput.value ? Number(costInput.value) : null,
 				invoiceReminder: selected === "invoiceReminder",
 			});

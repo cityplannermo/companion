@@ -341,7 +341,8 @@ export class FinanceView extends ItemView {
 					result.client,
 					result.recur,
 					result.cost,
-					result.invoiceReminder
+					result.invoiceReminder,
+					result.remind
 				).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
@@ -364,6 +365,7 @@ export class FinanceView extends ItemView {
 				date: reminder.date ?? formatDate(new Date()),
 				timeStr: reminder.time,
 				recur: reminder.recur,
+				remind: reminder.remind,
 				cost: reminder.cost,
 				invoiceReminder: reminder.invoiceReminder,
 			},
@@ -376,6 +378,7 @@ export class FinanceView extends ItemView {
 					endTimeStr: result.allDay ? undefined : result.endTime,
 					client: result.client,
 					recur: result.recur,
+					remind: result.remind,
 					cost: result.cost,
 					invoiceReminder: result.invoiceReminder,
 				}).then(

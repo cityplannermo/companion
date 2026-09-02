@@ -321,6 +321,7 @@ export class RemindersView extends ItemView {
 				date: reminder.date ?? formatDate(new Date()),
 				timeStr: reminder.time,
 				recur: reminder.recur,
+				remind: reminder.remind,
 				cost: reminder.cost,
 				invoiceReminder: reminder.invoiceReminder,
 			},
@@ -333,6 +334,7 @@ export class RemindersView extends ItemView {
 					endTimeStr: result.allDay ? undefined : result.endTime,
 					client: result.client,
 					recur: result.recur,
+					remind: result.remind,
 					cost: result.cost,
 					invoiceReminder: result.invoiceReminder,
 				}).then(

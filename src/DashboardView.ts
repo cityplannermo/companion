@@ -2,6 +2,7 @@ import { App, MarkdownRenderChild, Notice, setIcon, TFile } from "obsidian";
 import {
 	CompanionEvent,
 	buildIndex,
+	createManualTimeEntry,
 	createQuickNote,
 	getClientNames,
 	getRecurringOccurrences,
@@ -17,6 +18,7 @@ import { addDays, formatDate, formatElapsedMs, formatHours } from "./dates";
 import { EventEditorModal } from "./eventEditorUI";
 import { makeOpenable } from "./openHandlers";
 import type { CompanionSettings } from "./settings";
+import { ManualTimeEntryModal } from "./timerUI";
 
 /** The sections a Daily Note dashboard embed can fold. "timeEntries" is the
  * recent-entries list under the timer, not the timer controls themselves --
@@ -71,10 +73,10 @@ const activeEmbeds = new Set<DashboardEmbed>();
 export class DashboardEmbed extends MarkdownRenderChild {
 	private running: TimeEntry | null = null;
 	private elapsedEl: HTMLElement | null = null;
-	// "Recent time entries" starts folded -- everything else starts open,
-	// same as before this section existed, so nothing already-visible
-	// disappears on upgrade.
-	private collapsed: Set<DashboardSection> = new Set(["timeEntries"]);
+	// Every section starts folded -- opening the daily note should show a
+	// compact dashboard (running timer aside), not a wall of everything at
+	// once. Click a fold header to expand just that section.
+	private collapsed: Set<DashboardSection> = new Set(["today", "overdue", "dueSoon", "timeEntries"]);
 
 	constructor(
 		containerEl: HTMLElement,
@@ -122,24 +124,10 @@ export class DashboardEmbed extends MarkdownRenderChild {
 		root.addClass("companion-dashboard-embed");
 		this.elapsedEl = null;
 
-		this.renderHeader(root);
 		this.renderTimeTracker(root);
 		this.renderToday(root);
 		this.renderOverdue(root);
 		this.renderDueSoon(root);
-	}
-
-	/** Just the quick-create "+" -- same accent icon button, same shared
-	 * EventEditorModal, as the Calendar's own agenda header. Dated today,
-	 * since "today" is what a Daily Note dashboard is about. */
-	private renderHeader(root: HTMLElement): void {
-		const header = root.createDiv({ cls: "companion-dashboard-header" });
-		const addBtn = header.createEl("button", {
-			cls: "companion-icon-btn companion-icon-btn-accent",
-			attr: { "aria-label": "New item" },
-		});
-		setIcon(addBtn, "plus");
-		addBtn.onclick = () => this.openQuickCreate();
 	}
 
 	private openQuickCreate(): void {
@@ -155,7 +143,8 @@ export class DashboardEmbed extends MarkdownRenderChild {
 				result.client,
 				result.recur,
 				result.cost,
-				result.invoiceReminder
+				result.invoiceReminder,
+				result.remind
 			).then(
 				() => this.refresh(),
 				(err: Error) => new Notice(err.message)
@@ -255,7 +244,15 @@ export class DashboardEmbed extends MarkdownRenderChild {
 	 * Time tab's Log view has. */
 	private renderTimeTracker(root: HTMLElement): void {
 		const section = root.createDiv({ cls: "companion-dashboard-section" });
-		section.createEl("h3", { text: "Time tracker" });
+
+		const header = section.createDiv({ cls: "companion-dashboard-timer-header" });
+		header.createEl("h3", { text: "Time tracker" });
+		const addBtn = header.createEl("button", {
+			cls: "companion-icon-btn companion-icon-btn-accent",
+			attr: { "aria-label": "New item" },
+		});
+		setIcon(addBtn, "plus");
+		addBtn.onclick = () => this.openQuickCreate();
 
 		if (this.running) {
 			this.renderRunningCard(section);
@@ -316,6 +313,13 @@ export class DashboardEmbed extends MarkdownRenderChild {
 		clientSelect.createEl("option", { text: "No client", value: "" });
 		for (const name of getClientNames(this.app)) clientSelect.createEl("option", { text: name, value: name });
 
+		const addManual = row.createEl("button", {
+			cls: "companion-icon-btn companion-icon-btn-accent",
+			attr: { "aria-label": "Add a time entry manually" },
+		});
+		setIcon(addManual, "list-plus");
+		addManual.onclick = () => this.openManualEntry();
+
 		const start = row.createEl("button", {
 			cls: "companion-icon-btn companion-icon-btn-accent",
 			attr: { "aria-label": "Start timer" },
@@ -337,6 +341,18 @@ export class DashboardEmbed extends MarkdownRenderChild {
 			if (e.key === "Enter") submit();
 		};
 		start.onclick = submit;
+	}
+
+	/** Opens the manual-entry modal for a session that was forgotten at the
+	 * time -- unlike Start above, this doesn't touch the running timer at
+	 * all, it just writes an already-finished entry directly. */
+	private openManualEntry(): void {
+		new ManualTimeEntryModal(this.app, (description, client, dateStr, startTimeStr, endTimeStr) => {
+			createManualTimeEntry(this.app, description, client, dateStr, startTimeStr, endTimeStr, Number(this.settings.roundingMinutes)).then(
+				() => this.refresh(),
+				(err: Error) => new Notice(err.message)
+			);
+		}).open();
 	}
 
 	/** Rolls a past entry into a new running one with the same description
