@@ -1,4 +1,4 @@
-import { App, ItemView, MarkdownRenderChild, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { App, MarkdownRenderChild, TFile } from "obsidian";
 import {
 	CompanionEvent,
 	buildIndex,
@@ -8,98 +8,17 @@ import {
 	getTasks,
 	TimeEntry,
 } from "./data";
-import { getTodaysDailyNoteInfo, openTodaysDailyNote } from "./dailyNote";
 import { addDays, formatDate, formatElapsedMs } from "./dates";
 import { makeOpenable } from "./openHandlers";
-import type { CompanionSettings } from "./settings";
 
-export const VIEW_TYPE_DASHBOARD = "companion-dashboard-view";
-
-/**
- * "One place to see the important stuff" (Mo's own words) rather than a
- * per-client rollup -- a running timer, today's agenda, and what's overdue
- * or due soon, in one screen instead of checking Calendar/Tasks/Time/
- * Reminders separately every morning. Available two ways: this standalone
- * tab, and embedded directly in the Daily Note via a `companion-dashboard`
- * code block (see DashboardEmbed below) -- both call the same render
- * functions further down this file so they never drift apart. A per-client
- * view is still open as a later, different idea (see Companion.md's
- * roadmap) if this shape turns out not to be what's actually wanted.
- */
-export class DashboardView extends ItemView {
-	private running: TimeEntry | null = null;
-	private elapsedEl: HTMLElement | null = null;
-
-	constructor(
-		leaf: WorkspaceLeaf,
-		private settings: CompanionSettings
-	) {
-		super(leaf);
-	}
-
-	getViewType(): string {
-		return VIEW_TYPE_DASHBOARD;
-	}
-
-	getDisplayText(): string {
-		return "Dashboard";
-	}
-
-	getIcon(): string {
-		return "layout-dashboard";
-	}
-
-	async onOpen(): Promise<void> {
-		this.registerInterval(window.setInterval(() => this.tick(), 1000));
-		this.refresh();
-	}
-
-	async onClose(): Promise<void> {
-		// nothing to tear down beyond the interval, which registerInterval already handles
-	}
-
-	private tick(): void {
-		if (!this.running || !this.running.start || !this.elapsedEl) return;
-		this.elapsedEl.setText(formatElapsedMs(Date.now() - new Date(this.running.start).getTime()));
-	}
-
-	refresh(): void {
-		this.running = getRunningTimeEntry(this.app);
-		void this.render();
-	}
-
-	private async render(): Promise<void> {
-		const root = this.contentEl;
-		root.empty();
-		root.addClass("companion-dashboard-root");
-		this.elapsedEl = null;
-
-		root.createEl("h2", { text: "Dashboard" });
-		await this.renderTodayNoteCard(root);
-		this.elapsedEl = renderDashboardBody(this.app, root, this.running);
-	}
-
-	/** A one-click link to today's actual Daily Note. Kept even though the
-	 * Dashboard can also be embedded directly inside that note (see
-	 * DashboardEmbed below) -- this standalone tab is still worth having on
-	 * its own (a leaf pinned open all day, or checking a day that isn't
-	 * today from elsewhere), and this is the fastest way from it back to
-	 * today's freeform notes. Creates the note from the configured template
-	 * first if it doesn't exist yet. */
-	private async renderTodayNoteCard(parent: HTMLElement): Promise<void> {
-		const info = await getTodaysDailyNoteInfo(this.app);
-		const card = parent.createDiv({ cls: "companion-dashboard-daily-link" });
-		const btn = card.createEl("button", { cls: "companion-btn-icon-text" });
-		setIcon(btn, "calendar-days");
-		btn.createSpan({ text: info.exists ? `Today's note — ${info.label}` : `Create today's note — ${info.label}` });
-		btn.onclick = () => openTodaysDailyNote(this.app);
-	}
-}
-
-/** Renders the timer/agenda/overdue/due-soon body shared by the standalone
- * tab above and the Daily Note embed below. Returns the elapsed-time
- * element so the caller can tick it every second; null when nothing's
- * running. */
+/** Renders the timer/agenda/overdue/due-soon body embedded in the Daily
+ * Note via a `companion-dashboard` code block (see DashboardEmbed below) --
+ * "one place to see the important stuff" (Mo's own words) instead of
+ * checking Calendar/Tasks/Time/Reminders separately every morning. There's
+ * no separate standalone tab for this any more (removed 2 September 2026 as
+ * redundant with the Daily Note embed) -- this embed is the whole feature.
+ * Returns the elapsed-time element so the caller can tick it every second;
+ * null when nothing's running. */
 function renderDashboardBody(app: App, root: HTMLElement, running: TimeEntry | null): HTMLElement | null {
 	const elapsedEl = running ? renderRunningCard(root, running) : null;
 	renderToday(app, root);
@@ -227,7 +146,7 @@ const activeEmbeds = new Set<DashboardEmbed>();
  * opened, re-rendered or closed (see MarkdownRenderChild), so refreshing
  * everywhere the Dashboard is embedded only needs to track which are
  * currently alive. Registered in main.ts's registerMarkdownCodeBlockProcessor
- * and refreshed from the same hooks that refresh the standalone tab. */
+ * and refreshed from the same hooks that refresh every other view. */
 export class DashboardEmbed extends MarkdownRenderChild {
 	private running: TimeEntry | null = null;
 	private elapsedEl: HTMLElement | null = null;
@@ -264,8 +183,8 @@ export class DashboardEmbed extends MarkdownRenderChild {
 }
 
 /** Refreshes every `companion-dashboard` embed currently rendered in any
- * open note, alongside the standalone tab -- call this from wherever
- * refreshOpenViews() is called in main.ts. */
+ * open note -- call this from wherever refreshOpenViews() is called in
+ * main.ts. */
 export function refreshAllDashboardEmbeds(): void {
 	for (const embed of activeEmbeds) embed.refresh();
 }

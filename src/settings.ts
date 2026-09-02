@@ -201,7 +201,7 @@ export class CompanionSettingTab extends PluginSettingTab {
 					{
 						name: "Bank name",
 						desc: "",
-						control: { type: "text", key: "bankName", placeholder: "e.g. HSBC UK" },
+						control: { type: "text", key: "bankName", placeholder: "Your bank" },
 					},
 					{
 						name: "Bank account name",
@@ -362,7 +362,7 @@ export class CompanionSettingTab extends PluginSettingTab {
 		invoiceField("myEmail", "My email (invoices)", "", "you@example.com");
 		invoiceField("myPhone", "My phone (invoices)", "", "Your phone number");
 		invoiceField("paymentMethod", "Payment method", "Shown as \"Payment is due via **<this>**\" on every invoice.", "e.g. Bank Transfer");
-		invoiceField("bankName", "Bank name", "", "e.g. HSBC UK");
+		invoiceField("bankName", "Bank name", "", "Your bank");
 		invoiceField("bankAccountName", "Bank account name", "", "Name on the account");
 		invoiceField(
 			"bankAccountNumber",

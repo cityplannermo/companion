@@ -10,12 +10,41 @@ const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
 	{ value: "yearly", label: recurLabel("yearly") },
 ];
 
-const TYPE_OPTIONS: { value: QuickCreateType; label: string }[] = [
+// "Subscription" and "Invoice reminder" aren't real note types -- both are
+// still written as an ordinary Reminder (see DropdownValue/resolveType
+// below) -- they're here so the two most common *kinds* of Reminder are a
+// direct dropdown choice instead of "pick Reminder, then remember to also
+// set Repeat and Cost yourself". A Subscription is a Reminder with a cost;
+// an Invoice reminder is a Reminder that just borrows the Invoice pill
+// colour on the calendar, as a nudge to go generate the real invoice that
+// day through the Invoice Create Procedure -- it never creates one itself.
+type DropdownValue = QuickCreateType | "subscription" | "invoiceReminder";
+
+const TYPE_OPTIONS: { value: DropdownValue; label: string }[] = [
 	{ value: "meeting", label: "Meeting" },
 	{ value: "event", label: "Event" },
 	{ value: "reminder", label: "Reminder" },
+	{ value: "subscription", label: "Subscription" },
+	{ value: "invoiceReminder", label: "Invoice reminder" },
 	{ value: "task", label: "Task" },
 ];
+
+/** A Reminder written with a repeat rule and a cost is a subscription; one
+ * written with a repeat rule and this flag just wants the Invoice pill
+ * colour on the calendar -- see the DropdownValue comment above. */
+function resolveType(value: DropdownValue): QuickCreateType {
+	return value === "subscription" || value === "invoiceReminder" ? "reminder" : value;
+}
+
+/** The dropdown option that best represents an existing item's current
+ * shape, for pre-selecting it when editing (or defaulting a new one). */
+function dropdownValueFor(type: CompanionEventType, recur?: RecurKind, cost?: number, invoiceReminder?: boolean): DropdownValue {
+	if (type === "invoice") return "reminder"; // unreachable in practice -- typeSelect is never built for an Invoice, see isInvoice above
+	if (type !== "reminder") return type;
+	if (invoiceReminder) return "invoiceReminder";
+	if (recur && cost != null) return "subscription";
+	return "reminder";
+}
 
 /** Everything the modal hands back on submit. `type` is always one of the
  * four convertible types -- an Invoice being edited keeps its own type
@@ -23,22 +52,26 @@ const TYPE_OPTIONS: { value: QuickCreateType; label: string }[] = [
 export interface EventEditorResult {
 	title: string;
 	type: QuickCreateType;
+	date: string; // "YYYY-MM-DD"
 	allDay: boolean;
 	startTime: string; // "HH:MM", meaningful only when !allDay
 	endTime?: string; // "HH:MM", optional even when timed
 	client: string; // only meaningful when type === "meeting"; "" otherwise
 	recur: RecurKind | null; // null = doesn't repeat
 	cost: number | null; // only meaningful when type === "reminder"; null = not a subscription
+	invoiceReminder: boolean; // only meaningful when type === "reminder" -- see DropdownValue above
 }
 
 export interface EventEditorInitial {
 	title: string;
 	type: CompanionEventType; // may be "invoice" for an existing Invoice being edited
+	date: string; // "YYYY-MM-DD" -- the day this item is (or will be) dated to
 	timeStr: string; // "00:00" = all-day/no time
 	endTimeStr?: string;
 	client?: string;
 	recur?: RecurKind; // absent/undefined = doesn't repeat
 	cost?: number; // meaningful only when type === "reminder"
+	invoiceReminder?: boolean; // meaningful only when type === "reminder"
 }
 
 function toMinutes(hhmm: string): number {
@@ -56,10 +89,15 @@ function minutesToHHMM(minutes: number): string {
 /**
  * One modal for both creating a new item and editing an existing one --
  * title, type (Meeting/Event/Reminder/Task), a client field shown only for
- * Meeting, start/end time, and an "All day" checkbox. Replaces the old
- * separate "+ Reminder"/"+ Task"/"+ Event" buttons and the inline rename
- * field: one place to set everything a quick-created note needs, and one
- * place to fix any of it afterwards without opening the note itself.
+ * Meeting, a date field, start/end time, and an "All day" checkbox.
+ * Replaces the old separate "+ Reminder"/"+ Task"/"+ Event" buttons and the
+ * inline rename field: one place to set everything a quick-created note
+ * needs, and one place to fix any of it afterwards without opening the
+ * note itself. The date field matters even when a caller already knows a
+ * day (e.g. the Calendar's own double-click-a-slot) since it's still the
+ * one place to change it before creating -- callers with no day context of
+ * their own (Finance's "+ Subscription", the "New item" command) default it
+ * to today and let this field be the only way to pick a different one.
  *
  * Invoices are the one type this modal won't create or convert to/from --
  * they need the full Invoice Create Procedure (line items, banking
@@ -102,10 +140,11 @@ export class EventEditorModal extends Modal {
 				text: isInvoice ? "Invoice — edited via the Invoice Create Procedure, not here." : (this.lockedTypeLabel as string),
 			});
 		} else {
+			const initialValue = dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder);
 			typeSelect = contentEl.createEl("select", { cls: "companion-event-editor-type" });
 			for (const opt of TYPE_OPTIONS) {
 				const el = typeSelect.createEl("option", { text: opt.label, value: opt.value });
-				if (opt.value === this.initial.type) el.selected = true;
+				if (opt.value === initialValue) el.selected = true;
 			}
 		}
 
@@ -142,10 +181,16 @@ export class EventEditorModal extends Modal {
 		costInput.value = this.initial.cost != null ? String(this.initial.cost) : "";
 		const syncCostVisibility = () => {
 			const currentType = typeSelect?.value ?? this.initial.type;
-			costRow.toggleClass("companion-hidden", currentType !== "reminder");
+			costRow.toggleClass("companion-hidden", currentType !== "reminder" && currentType !== "subscription");
 		};
 		syncCostVisibility();
 		typeSelect?.addEventListener("change", syncCostVisibility);
+
+		const dateInput = contentEl.createEl("input", {
+			cls: "companion-event-editor-date",
+			attr: { type: "date", "aria-label": "Date" },
+		});
+		dateInput.value = this.initial.date;
 
 		const timesRow = contentEl.createDiv({ cls: "companion-event-editor-times" });
 		const startInput = timesRow.createEl("input", { attr: { type: "time", "aria-label": "Starts at" } });
@@ -203,21 +248,26 @@ export class EventEditorModal extends Modal {
 			submitted = true;
 			this.close();
 			const allDay = allDayCheckbox.checked;
+			const selected =
+				(typeSelect?.value as DropdownValue | undefined) ??
+				dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder);
 			this.onSubmit({
 				title,
-				type: (typeSelect?.value as QuickCreateType | undefined) ?? (this.initial.type as QuickCreateType),
+				type: resolveType(selected),
+				date: dateInput.value || this.initial.date,
 				allDay,
 				startTime: !allDay && startInput.value ? startInput.value : "00:00",
 				endTime: !allDay && endInput.value ? endInput.value : undefined,
 				client: clientInput.value,
 				recur: (recurSelect.value || null) as RecurKind | null,
 				cost: costInput.value ? Number(costInput.value) : null,
+				invoiceReminder: selected === "invoiceReminder",
 			});
 		};
 		const onEscape = (e: KeyboardEvent) => {
 			if (e.key === "Escape") this.close();
 		};
-		for (const el of [titleInput, startInput, endInput, clientInput, costInput]) {
+		for (const el of [titleInput, dateInput, startInput, endInput, clientInput, costInput]) {
 			el.addEventListener("keydown", (e) => {
 				if (e.key === "Enter") submit();
 				onEscape(e);

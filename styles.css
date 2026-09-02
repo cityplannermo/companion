@@ -538,9 +538,13 @@
 
 .companion-list-row-title {
 	flex: 1;
+	min-width: 0;
 	font-size: 0.85em;
 	color: var(--text-normal);
 	cursor: pointer;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .companion-list-row-title:hover {
@@ -831,28 +835,10 @@
 	color: var(--text-error, #c8524f);
 }
 
-.companion-banner {
-	display: block;
-	width: 100%;
-	max-height: 280px;
-	object-fit: cover;
-	border-radius: 6px;
-	margin-bottom: 16px;
-}
-
 .companion-dashboard-root {
 	height: 100%;
 	overflow: auto;
 	padding: 12px 16px;
-}
-
-.companion-dashboard-root h2 {
-	margin: 0 0 12px 0;
-	font-size: 1.1em;
-}
-
-.companion-dashboard-daily-link {
-	margin-bottom: 12px;
 }
 
 /* The embedded ```companion-dashboard``` block in a Daily Note isn't its
@@ -921,6 +907,12 @@
 .companion-finance-header h2 {
 	margin: 0;
 	font-size: 1.1em;
+}
+
+.companion-finance-header-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
 }
 
 .companion-finance-list {
@@ -1257,7 +1249,8 @@
 /* Small screens (phone widths): the calendar's side-by-side day grid +
    agenda, and the Kanban board's side-by-side columns, are both too
    cramped to use below this width -- stack them vertically instead.
-   List views aren't touched here since they're already single-column. */
+   Also gives list rows, header buttons, and the invoice modal's fixed-
+   width fields more breathing room, per Mo's mobile feedback. */
 @media (max-width: 480px) {
 	.companion-layout {
 		flex-direction: column;
@@ -1279,6 +1272,64 @@
 	.companion-column {
 		flex: 0 0 82%;
 		min-width: 0;
+	}
+
+	/* List rows (Reminders, Finance, Task board's list mode): the title
+	   gets its own full-width line instead of being squeezed and ellipsised
+	   next to the date/cost/controls, which move to a second line below it
+	   with a bit more breathing room than the desktop layout needs. */
+	.companion-list-row {
+		flex-wrap: wrap;
+		row-gap: 6px;
+		padding: 10px 0;
+	}
+
+	.companion-list-row-title {
+		order: -1;
+		flex-basis: 100%;
+		white-space: normal;
+		overflow: visible;
+		text-overflow: unset;
+	}
+
+	.companion-list-row-date {
+		width: auto;
+	}
+
+	/* Header action buttons: full-width and stacked rather than squeezed
+	   onto one row, so labels and tap targets stay comfortable. */
+	.companion-finance-header-actions,
+	.companion-task-header-controls {
+		width: 100%;
+	}
+
+	.companion-finance-header-actions .companion-btn-icon-text,
+	.companion-task-header-controls .companion-btn-icon-text {
+		flex: 1;
+		justify-content: center;
+	}
+
+	/* Invoice generator: a fixed-width column table doesn't fit a phone
+	   screen -- scroll it horizontally within its own box rather than
+	   letting it force the whole modal (and page) wider. */
+	.companion-invoice-review-table {
+		overflow-x: auto;
+	}
+
+	.companion-invoice-edit-row {
+		width: max-content;
+		min-width: 100%;
+	}
+
+	/* Invoice field rows (Your details / Payment settings): a fixed label
+	   width plus an input is tight on a phone -- stack them instead. */
+	.companion-invoice-field-row {
+		flex-wrap: wrap;
+		row-gap: 4px;
+	}
+
+	.companion-invoice-field-row label {
+		width: 100%;
 	}
 }
 
@@ -1574,6 +1625,17 @@
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
 	padding: 5px 8px;
+}
+
+.companion-event-editor-date {
+	width: 100%;
+	font-size: 0.9em;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	padding: 5px 8px;
+	margin-bottom: 8px;
 }
 
 .companion-event-editor-times {

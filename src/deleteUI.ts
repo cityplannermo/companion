@@ -1,5 +1,5 @@
 import { App, Menu, Modal, Notice, TFile } from "obsidian";
-import { deleteCompanionFile } from "./data";
+import { advanceRecurringOccurrence, deleteCompanionFile, RecurKind } from "./data";
 
 function doDelete(app: App, files: TFile[], onDone: () => void): void {
 	Promise.all(files.map((f) => deleteCompanionFile(app, f))).then(
@@ -89,7 +89,14 @@ export function showDeleteMenu(
 	onDone: () => void,
 	onEdit?: () => void,
 	onToggleSelect?: () => void,
-	onClear?: () => void
+	onClear?: () => void,
+	// Set when `file` is itself a recurring series' anchor -- adds "Skip
+	// this occurrence" above the usual Delete, for the one case Delete
+	// alone can't express: removing just the anchor's own date without
+	// ending the whole series. See advanceRecurringOccurrence in data.ts
+	// for why that's a date-advance rather than a real delete. Only shown
+	// against a single item; a multi-selection stays delete-only.
+	recur?: RecurKind
 ): void {
 	event.preventDefault();
 	const inSelection = selectedFiles.some((f) => f.path === file.path);
@@ -111,6 +118,16 @@ export function showDeleteMenu(
 	}
 	if (onClear && selectedFiles.length > 1) {
 		menu.addItem((item) => item.setTitle("Clear selection").setIcon("x").onClick(onClear));
+	}
+	if (recur && targets.length === 1) {
+		menu.addItem((item) =>
+			item
+				.setTitle("Skip this occurrence")
+				.setIcon("skip-forward")
+				.onClick(() => {
+					advanceRecurringOccurrence(app, file).then(onDone, (err: Error) => new Notice(err.message));
+				})
+		);
 	}
 	menu.addItem((item) =>
 		item

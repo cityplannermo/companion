@@ -36,6 +36,7 @@ export interface CompanionEvent {
 	client?: string; // unwrapped from the [[wikilink]] -- set only on a Meeting, powers the calendar's edit modal
 	recur?: RecurKind; // set when this note is itself a recurring series' anchor
 	cost?: number; // GBP, meaningful only when type === "reminder" -- what makes it a subscription
+	invoiceReminder?: boolean; // meaningful only when type === "reminder" -- shows with the Invoice pill colour on the calendar (see CalendarView's visualType), without being a real Invoice
 	// Set only on a *projected* occurrence (see getRecurringOccurrences below) --
 	// `file` on one of these still points at the series note, since there's no
 	// real note yet for a virtual date. Every caller that would otherwise act on
@@ -172,6 +173,7 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 			client: type === "meeting" ? (unwrapWikilink(frontmatter["client"]) ?? undefined) : undefined,
 			recur: parseRecur(frontmatter["recur"]) ?? undefined,
 			cost: type === "reminder" && typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
+			invoiceReminder: type === "reminder" && frontmatter["invoiceReminder"] === true ? true : undefined,
 		};
 
 		const bucket = index.get(date);
@@ -199,6 +201,7 @@ export interface CompanionTask {
 	priority: TaskPriority | null; // null = no priority set, not a fourth level
 	checklistDone: number; // markdown checkbox items in the note's own body, checked
 	checklistTotal: number; // same, total -- 0 means the note has no checklist at all
+	recur?: RecurKind; // set when this task is itself a recurring series' anchor
 }
 
 function toTaskStatus(value: unknown): TaskStatus {
@@ -241,6 +244,7 @@ export function getTasks(app: App): CompanionTask[] {
 			priority: toTaskPriority(frontmatter["priority"]),
 			checklistDone: done,
 			checklistTotal: total,
+			recur: parseRecur(frontmatter["recur"]) ?? undefined,
 		});
 	}
 
@@ -345,7 +349,8 @@ function quickCreateFrontmatter(
 	endTimeStr?: string,
 	client?: string,
 	recur?: RecurKind | null,
-	cost?: number | null
+	cost?: number | null,
+	invoiceReminder?: boolean
 ): string {
 	const endLine = endTimeStr ? `end: ${dateStr}T${endTimeStr}\n` : "";
 	const recurLine = recur ? `recur: ${recur}\n` : "";
@@ -359,9 +364,16 @@ function quickCreateFrontmatter(
 		const clientLine = client?.trim() ? `client: [[${client.trim()}]]\n` : "client:\n";
 		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${clientLine}${recurLine}tags:\n  - meeting\n---\n\n`;
 	}
-	// Reminder -- the only type `cost` is meaningful on (see CompanionReminder).
+	// Reminder -- the only type `cost`/`invoiceReminder` are meaningful on
+	// (see CompanionReminder / CompanionEvent.invoiceReminder). A subscription
+	// isn't a separate note type -- it's a Reminder with both `recur` and
+	// `cost` set -- but it gets a second `subscription` tag alongside
+	// `reminder` so it's still findable by tag or a Base filter on its own.
 	const costLine = cost != null && cost > 0 ? `cost: ${cost}\n` : "";
-	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${costLine}tags:\n  - reminder\n---\n\n`;
+	const invoiceReminderLine = invoiceReminder ? `invoiceReminder: true\n` : "";
+	const isSubscription = !!recur && cost != null && cost > 0;
+	const tagsBlock = isSubscription ? `tags:\n  - reminder\n  - subscription\n` : `tags:\n  - reminder\n`;
+	return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${costLine}${invoiceReminderLine}${tagsBlock}---\n\n`;
 }
 
 /** Creates a new Reminder, Task, Event or Meeting note dated to `dateStr`,
@@ -371,7 +383,9 @@ function quickCreateFrontmatter(
  * as a duration block rather than a point in time. `client`, meaningful
  * only for a Meeting, is wrapped into a `[[wikilink]]`. `cost`, meaningful
  * only for a Reminder, is what turns it into a subscription alongside
- * `recur` in the Reminders view. */
+ * `recur` in the Reminders view. `invoiceReminder`, also Reminder-only,
+ * just borrows the Invoice pill colour on the calendar -- see
+ * CompanionEvent.invoiceReminder. */
 export async function createQuickNote(
 	app: App,
 	type: QuickCreateType,
@@ -381,7 +395,8 @@ export async function createQuickNote(
 	endTimeStr?: string,
 	client?: string,
 	recur?: RecurKind | null,
-	cost?: number | null
+	cost?: number | null,
+	invoiceReminder?: boolean
 ): Promise<TFile> {
 	const safe = sanitiseFilename(title);
 	if (!safe) throw new Error("A title is needed to create a note.");
@@ -390,7 +405,7 @@ export async function createQuickNote(
 	if (app.vault.getAbstractFileByPath(path)) {
 		throw new Error(`A note already exists at "${path}".`);
 	}
-	return app.vault.create(path, quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost));
+	return app.vault.create(path, quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder));
 }
 
 function replaceTypeTag(fm: Record<string, unknown>, oldTag: string, newTag: string): void {
@@ -417,6 +432,7 @@ export interface EventEditFields {
 	client?: string; // meaningful only when type === "meeting"
 	recur?: RecurKind | null; // null/undefined clears any existing recurrence (and its exceptions)
 	cost?: number | null; // meaningful only when type === "reminder"; null/undefined clears it
+	invoiceReminder?: boolean; // meaningful only when type === "reminder"; falsy clears it
 }
 
 /**
@@ -485,6 +501,18 @@ export async function applyEventEdit(app: App, file: TFile, oldType: CompanionEv
 		}
 		if (fields.type === "reminder" && fields.cost != null && fields.cost > 0) fm["cost"] = fields.cost;
 		else delete fm["cost"];
+		if (fields.type === "reminder" && fields.invoiceReminder) fm["invoiceReminder"] = true;
+		else delete fm["invoiceReminder"];
+
+		// Keep the `subscription` tag in sync with recur+cost both being set
+		// -- added or dropped automatically, the same way `status`/`client`
+		// above track the type, rather than something to maintain by hand.
+		const isSubscription = fields.type === "reminder" && !!fields.recur && fields.cost != null && fields.cost > 0;
+		const tags = getTags(fm);
+		const idx = tags.indexOf("subscription");
+		if (isSubscription && idx === -1) tags.push("subscription");
+		else if (!isSubscription && idx !== -1) tags.splice(idx, 1);
+		fm["tags"] = tags;
 	});
 
 	return current;
@@ -602,6 +630,8 @@ export function getRecurringOccurrences(app: App, rangeStart: string, rangeEnd: 
 		const endTime = fm["end"] != null ? timeOfDay(fm["end"]) : undefined;
 		const status = typeof fm["status"] === "string" ? fm["status"] : undefined;
 		const client = type === "meeting" ? (unwrapWikilink(fm["client"]) ?? undefined) : undefined;
+		const cost = type === "reminder" && typeof fm["cost"] === "number" ? fm["cost"] : undefined;
+		const invoiceReminder = type === "reminder" && fm["invoiceReminder"] === true ? true : undefined;
 
 		// A series split via splitRecurringSeries() below caps the *original*
 		// half at the day before the split -- it never projects the split
@@ -623,6 +653,8 @@ export function getRecurringOccurrences(app: App, rangeStart: string, rangeEnd: 
 				status,
 				client,
 				recur: kind,
+				cost,
+				invoiceReminder,
 				virtualOf: file,
 			});
 		}
@@ -733,12 +765,29 @@ export async function splitRecurringSeries(app: App, seriesFile: TFile, fromDate
 		}
 	});
 
+	await capRecurringSeries(app, seriesFile, fromDate);
+
+	return newFile;
+}
+
+/** Caps a series so it never projects `fromDate` or anything after --
+ * shared by splitRecurringSeries above (which also creates a new note to
+ * carry on from `fromDate`) and deleteRecurringSeriesFrom below (which
+ * doesn't: "delete this and following occurrences" on a projected date,
+ * with nothing replacing them). */
+async function capRecurringSeries(app: App, seriesFile: TFile, fromDate: string): Promise<void> {
 	const dayBefore = formatDateStr(addDaysLocal(parseDateStr(fromDate), -1));
 	await app.fileManager.processFrontMatter(seriesFile, (sfm: Record<string, unknown>) => {
 		sfm["recurUntil"] = dayBefore;
 	});
+}
 
-	return newFile;
+/** "Delete this and following occurrences" on a projected (not yet
+ * materialised) date -- caps the series the same way splitRecurringSeries
+ * does, but creates nothing new to carry on: everything from `fromDate`
+ * onward simply stops being projected. Everything before it is untouched. */
+export async function deleteRecurringSeriesFrom(app: App, seriesFile: TFile, fromDate: string): Promise<void> {
+	await capRecurringSeries(app, seriesFile, fromDate);
 }
 
 // Every note tagged `reminder`, regardless of date -- mirrors getTasks()
@@ -753,6 +802,7 @@ export interface CompanionReminder {
 	time: string; // HH:MM, "00:00" when no specific time was set
 	recur?: RecurKind;
 	cost?: number; // GBP, only meaningful alongside recur
+	invoiceReminder?: boolean; // see CompanionEvent.invoiceReminder -- carried here too so editing a reminder from the Reminders/Finance views doesn't silently clear the flag
 }
 
 export function getReminders(app: App): CompanionReminder[] {
@@ -771,6 +821,7 @@ export function getReminders(app: App): CompanionReminder[] {
 			time: timeOfDay(frontmatter["date"]),
 			recur: parseRecur(frontmatter["recur"]) ?? undefined,
 			cost: typeof frontmatter["cost"] === "number" ? frontmatter["cost"] : undefined,
+			invoiceReminder: frontmatter["invoiceReminder"] === true ? true : undefined,
 		});
 	}
 
@@ -814,17 +865,23 @@ function nextOccurrenceDate(current: Date, kind: RecurKind): Date {
 	return new Date(nextYear, current.getMonth(), Math.min(day, lastDay));
 }
 
-/** Rolls a recurring reminder's own `date` forward by one occurrence --
- * "Renew" in the Reminders view. No note is created or touched other than
- * this one; the reminder just becomes due again next period, the same note
- * throughout its life. */
-export async function advanceRecurringReminder(app: App, file: TFile): Promise<void> {
+/** Rolls a recurring note's own `date` forward by one occurrence -- the
+ * mechanism behind both "Renew" in the Finance tab (a subscription) and
+ * "Skip this occurrence" on any other recurring Meeting/Event/Reminder/Task
+ * anchor's own delete menu (see showDeleteMenu in deleteUI.ts). No note is
+ * created or touched other than this one; it just becomes due again next
+ * period, the same note throughout its life -- the anchor's own occurrence
+ * can't be individually removed without ending the series (there'd be
+ * nothing left to project future dates from), so "skipping" it means moving
+ * straight to the next one instead, the same way a projected (not yet
+ * materialised) occurrence is skipped via skipRecurringOccurrence above. */
+export async function advanceRecurringOccurrence(app: App, file: TFile): Promise<void> {
 	const cache = app.metadataCache.getFileCache(file);
 	const fm = cache?.frontmatter;
 	const kind = parseRecur(fm?.["recur"]);
-	if (!kind) throw new Error("This reminder doesn't repeat.");
+	if (!kind) throw new Error("This item doesn't repeat.");
 	const dateStr = normaliseDate(fm?.["date"]);
-	if (!dateStr) throw new Error("This reminder has no date to renew from.");
+	if (!dateStr) throw new Error("This item has no date to advance from.");
 	const time = timeOfDay(fm?.["date"]);
 	const next = nextOccurrenceDate(parseDateStr(dateStr), kind);
 
@@ -1265,6 +1322,49 @@ export function getLatestInvoiceForClient(app: App, clientName: string): Previou
 		if (!latest || parsed.number > latest.number) latest = { file, number: parsed.number, dateStr: parsed.dateStr };
 	}
 	return latest;
+}
+
+export interface CompanionInvoice {
+	file: TFile;
+	number: number;
+	client: string;
+	date: string | null; // YYYY-MM-DD, the invoice's issue date
+	amount: number | null; // null if a total couldn't be parsed from the body
+	currencySymbol: string; // "£" or "$" -- "" if amount is null
+}
+
+const TOTAL_DUE_RE = /\*\*Total Due:\*\*\s*([£$])([\d,]+\.\d{2})/;
+
+/** Every invoice ever generated, newest first -- backs the Finance tab's
+ * Income section. Client and date come from frontmatter (falling back to
+ * the filename, which encodes both -- see parseInvoiceFilename); the
+ * total only ever exists as body text (see generateInvoice's `**Total
+ * Due:**` line), never a frontmatter field, so this is the one Companion
+ * data function that needs an async content read per file rather than
+ * just the metadata cache. */
+export async function getInvoices(app: App): Promise<CompanionInvoice[]> {
+	const invoices: CompanionInvoice[] = [];
+
+	for (const file of app.vault.getMarkdownFiles()) {
+		if (file.parent?.path !== INVOICE_FOLDER) continue;
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		const parsed = parseInvoiceFilename(file.basename);
+
+		const content = await app.vault.cachedRead(file);
+		const match = content.match(TOTAL_DUE_RE);
+
+		invoices.push({
+			file,
+			number: parsed?.number ?? 0,
+			client: unwrapWikilink(frontmatter?.["client"]) ?? parsed?.client ?? file.basename,
+			date: normaliseDate(frontmatter?.["date"]) ?? parsed?.dateStr ?? null,
+			amount: match ? parseFloat(match[2].replace(/,/g, "")) : null,
+			currencySymbol: match ? match[1] : "",
+		});
+	}
+
+	return invoices.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
 }
 
 // en-GB's Intl month abbreviation gives "Sept" for September (4 letters,

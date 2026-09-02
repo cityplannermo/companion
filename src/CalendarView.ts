@@ -5,6 +5,7 @@ import {
 	CompanionEvent,
 	CompanionEventType,
 	createQuickNote,
+	deleteRecurringSeriesFrom,
 	getRecurringOccurrences,
 	materialiseOccurrence,
 	resizeEventBlock,
@@ -41,6 +42,11 @@ const TYPE_LABELS: Record<CalendarVisualType, string> = {
 const TYPE_ORDER: CalendarVisualType[] = ["meeting", "event", "reminder", "subscription", "task", "invoice"];
 
 function visualType(ev: CompanionEvent): CalendarVisualType {
+	// An "Invoice reminder" borrows the real Invoice colour deliberately --
+	// it's a nudge to go generate one that day, not a category of its own
+	// (see the DropdownValue comment in eventEditorUI.ts) -- checked first
+	// since a reminder could in principle carry both flags.
+	if (ev.type === "reminder" && ev.invoiceReminder) return "invoice";
 	return ev.type === "reminder" && ev.recur && ev.cost != null ? "subscription" : ev.type;
 }
 
@@ -717,17 +723,18 @@ export class CalendarView extends ItemView {
 	 * no hour) leaves it All day by default -- a specific "HH:MM" (from a
 	 * double-clicked half-hour cell) pre-fills that start instead. */
 	private openCreateAt(dateStr: string, timeStr: string | null): void {
-		new EventEditorModal(this.app, "create", { title: "", type: "reminder", timeStr: timeStr ?? "00:00" }, (result) => {
+		new EventEditorModal(this.app, "create", { title: "", type: "reminder", date: dateStr, timeStr: timeStr ?? "00:00" }, (result) => {
 			createQuickNote(
 				this.app,
 				result.type,
-				dateStr,
+				result.date,
 				result.title,
 				result.allDay ? "00:00" : result.startTime,
 				result.allDay ? undefined : result.endTime,
 				result.client,
 				result.recur,
-				result.cost
+				result.cost,
+				result.invoiceReminder
 			).then(
 				() => this.refresh(),
 				(err: Error) => new Notice(err.message)
@@ -744,17 +751,18 @@ export class CalendarView extends ItemView {
 		new EventEditorModal(
 			this.app,
 			"edit",
-			{ title: ev.title, type: ev.type, timeStr: ev.time, endTimeStr: ev.endTime, client: ev.client, recur: ev.recur, cost: ev.cost },
+			{ title: ev.title, type: ev.type, date: ev.date, timeStr: ev.time, endTimeStr: ev.endTime, client: ev.client, recur: ev.recur, cost: ev.cost },
 			(result) => {
 				applyEventEdit(this.app, ev.file, ev.type, {
 					title: result.title,
 					type: result.type,
-					dateStr: ev.date,
+					dateStr: result.date,
 					timeStr: result.allDay ? "00:00" : result.startTime,
 					endTimeStr: result.allDay ? undefined : result.endTime,
 					client: result.client,
 					recur: result.recur,
 					cost: result.cost,
+					invoiceReminder: result.invoiceReminder,
 				}).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
@@ -799,7 +807,8 @@ export class CalendarView extends ItemView {
 				() => {
 					this.selection.clear();
 					this.render();
-				}
+				},
+				ev.recur
 			);
 		makeOpenable(this.app, el, ev.file, {
 			onToggleSelect: () => {
@@ -822,6 +831,12 @@ export class CalendarView extends ItemView {
 			item.setTitle("Edit this and following occurrences").setIcon("pencil-line").onClick(() => this.splitAndEdit(ev))
 		);
 		menu.addItem((item) => item.setTitle("Skip this occurrence").setIcon("x").onClick(() => this.skipOccurrence(ev)));
+		menu.addItem((item) =>
+			item
+				.setTitle("Delete this and following occurrences")
+				.setIcon("trash")
+				.onClick(() => this.deleteFollowingOccurrences(ev))
+		);
 		menu.showAtMouseEvent(e);
 	}
 
@@ -870,6 +885,19 @@ export class CalendarView extends ItemView {
 		);
 	}
 
+	/** Caps the series at the day before this occurrence -- nothing from
+	 * here on is projected any more, and nothing new is created to replace
+	 * it (contrast splitAndEdit above, which caps the same way but also
+	 * starts a new note to carry on). Everything before this date is
+	 * untouched, real materialised occurrences included. */
+	private deleteFollowingOccurrences(ev: CompanionEvent): void {
+		if (!ev.virtualOf) return;
+		deleteRecurringSeriesFrom(this.app, ev.virtualOf, ev.date).then(
+			() => this.refresh(),
+			(err: Error) => new Notice(err.message)
+		);
+	}
+
 	private renderAgenda(parent: HTMLElement): void {
 		const titleRow = parent.createDiv({ cls: "companion-agenda-header" });
 		titleRow.createEl("h3", { text: "Agenda", cls: "companion-agenda-title" });
@@ -890,28 +918,11 @@ export class CalendarView extends ItemView {
 		if (events.length === 0) {
 			parent.createDiv({ cls: "companion-empty", text: "Nothing on this day." });
 		} else {
-			// A dedicated list container keeps `.companion-item:last-child` scoped to
-			// the items themselves — without it, the trailing `.companion-note` div
-			// below is the real last child, so no item ever matches `:last-child`
-			// and the last item keeps a border that duplicates the note's own.
 			const list = parent.createDiv({ cls: "companion-item-list" });
 			for (const ev of events) {
 				this.renderAgendaItem(list, ev);
 			}
 		}
-
-		parent.createDiv({
-			cls: "companion-note",
-			text:
-				"Drag an item onto a day (or, in Week/Day view, onto a half-hour) to reschedule it; drag a block's top " +
-				"or bottom edge to resize it. Double-click an empty slot to create something there. Click an item, or " +
-				"use the pencil, to edit its title, type, time, repeat rule and (for a Meeting) client -- no need to " +
-				"open the note. Right-click (or press and hold on mobile) for Edit/Select/Delete; Shift+click also " +
-				"selects on desktop. Once selecting, tap or click other items to add them, then Clear to finish. " +
-				"A repeating item shows its projected dates faded/dashed until one's opened or edited, which creates " +
-				"its own real note for that date -- right-click a projected date to skip it instead. " +
-				"Invoices still go through their usual flow.",
-		});
 	}
 
 	private renderAgendaItem(parent: HTMLElement, ev: CompanionEvent): void {
@@ -937,7 +948,8 @@ export class CalendarView extends ItemView {
 					() => {
 						this.selection.clear();
 						this.render();
-					}
+					},
+					ev.recur
 				);
 			this.makeDraggable(row, ev.file);
 		}

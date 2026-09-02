@@ -233,14 +233,6 @@ export class TaskBoardView extends ItemView {
 
 			this.makeStatusDropTarget(column, status);
 		}
-
-		parent.createDiv({
-			cls: "companion-note",
-			text:
-				"Drag a card to another column (or use ‹ ›) to update its status field only. Right-click (or press " +
-				"and hold on mobile) for Select/Delete; Shift+click also selects on desktop. Once selecting, tap or " +
-				"click other items to add them, then Clear to finish.",
-		});
 	}
 
 	/** Accepts a card dragged from another column and writes its new status — the only field touched. */
@@ -284,7 +276,8 @@ export class TaskBoardView extends ItemView {
 				() => {
 					this.selection.clear();
 					this.render();
-				}
+				},
+				task.recur
 			);
 
 		// Desktop drag-and-drop between columns; the ‹ › controls below cover
@@ -361,7 +354,8 @@ export class TaskBoardView extends ItemView {
 						() => {
 							this.selection.clear();
 							this.render();
-						}
+						},
+						task.recur
 					);
 				const dateEl = row.createDiv({
 					cls: "companion-list-row-date",
@@ -381,10 +375,6 @@ export class TaskBoardView extends ItemView {
 			}
 		}
 
-		parent.createDiv({
-			cls: "companion-note",
-			text: "Moving a task with ‹ › updates its status field only. Right-click (or press and hold on mobile) for Select/Delete; Shift+click also selects on desktop. Once selecting, tap or click other items to add them, then Clear to finish.",
-		});
 	}
 
 	/** A checklist-progress badge (read-only, counted from the note's own

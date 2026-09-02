@@ -225,14 +225,6 @@ export class RemindersView extends ItemView {
 			list.createDiv({ cls: "companion-empty", text: "No reminders match your filter." });
 		}
 
-		parent.createDiv({
-			cls: "companion-note",
-			text:
-				"Due matches what due_reminders.py surfaces — date today or earlier. A reminder with both a repeat " +
-				"rule and a cost is a subscription and lives in the Finance tab instead of here. Right-click (or " +
-				"press and hold on mobile) for Edit/Select/Delete; Shift+click also selects on desktop. Once " +
-				"selecting, tap or click other items to add them, then Clear to finish.",
-		});
 	}
 
 	private renderGroup(parent: HTMLElement, label: string, items: CompanionReminder[], todayStr: string): void {
@@ -260,7 +252,8 @@ export class RemindersView extends ItemView {
 					() => {
 						this.selection.clear();
 						this.render();
-					}
+					},
+					reminder.recur
 				);
 
 			row.createDiv({
@@ -322,17 +315,26 @@ export class RemindersView extends ItemView {
 		new EventEditorModal(
 			this.app,
 			"edit",
-			{ title: reminder.title, type: "reminder", timeStr: reminder.time, recur: reminder.recur, cost: reminder.cost },
+			{
+				title: reminder.title,
+				type: "reminder",
+				date: reminder.date ?? formatDate(new Date()),
+				timeStr: reminder.time,
+				recur: reminder.recur,
+				cost: reminder.cost,
+				invoiceReminder: reminder.invoiceReminder,
+			},
 			(result) => {
 				applyEventEdit(this.app, reminder.file, "reminder", {
 					title: result.title,
 					type: result.type,
-					dateStr: reminder.date ?? formatDate(new Date()),
+					dateStr: result.date,
 					timeStr: result.allDay ? "00:00" : result.startTime,
 					endTimeStr: result.allDay ? undefined : result.endTime,
 					client: result.client,
 					recur: result.recur,
 					cost: result.cost,
+					invoiceReminder: result.invoiceReminder,
 				}).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
