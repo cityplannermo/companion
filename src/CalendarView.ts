@@ -1,4 +1,4 @@
-import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { ItemView, Menu, Notice, Platform, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import {
 	applyEventEdit,
 	buildIndex,
@@ -169,10 +169,13 @@ export class CalendarView extends ItemView {
 		// The agenda panel only earns its keep in Month view -- it's the
 		// only way to see a clicked day's item list there without losing the
 		// month grid. In Week/Day it just repeats what the hourly grid
-		// already shows for the same days, so it's not offered at all
-		// (and its fold toggle goes with it, which also stops that toggle
-		// wrapping onto its own line in the header on narrow screens).
-		const showAgenda = this.mode === "month" && !this.settings.agendaCollapsed;
+		// already shows for the same days, so it's not offered at all (and
+		// its fold toggle goes with it). On mobile, the fold toggle is
+		// dropped too and Month view's agenda is simply always shown --
+		// folding it away was only ever about reclaiming horizontal space
+		// next to the grid, which isn't a thing on a phone-width column
+		// layout, and the toggle was what wrapped onto its own line there.
+		const showAgenda = this.mode === "month" && (Platform.isMobile || !this.settings.agendaCollapsed);
 
 		const layout = root.createDiv({ cls: "companion-layout" });
 		layout.toggleClass("companion-agenda-collapsed", !showAgenda);
@@ -291,8 +294,10 @@ export class CalendarView extends ItemView {
 		};
 
 		// Agenda (and its fold toggle) is Month-only -- see the comment in
-		// render() -- so the toggle simply isn't built for Week/Day at all.
-		if (this.mode === "month") {
+		// render() -- so the toggle simply isn't built for Week/Day at all,
+		// nor on mobile, where agenda is always shown in Month view and
+		// there's nothing to fold.
+		if (this.mode === "month" && !Platform.isMobile) {
 			const toggleAgenda = nav.createEl("button", {
 				cls: "companion-icon-btn",
 				attr: { "aria-label": this.settings.agendaCollapsed ? "Show agenda" : "Hide agenda" },
