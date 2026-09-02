@@ -1,6 +1,6 @@
 {
 	"name": "companion",
-	"version": "1.26.0",
+	"version": "1.26.1",
 	"description": "Calendar, task board, reminders and a live time tracker for notes tagged meeting, reminder, task, event, invoice or time.",
 	"main": "main.js",
 	"scripts": {

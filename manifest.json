@@ -1,7 +1,7 @@
 {
 	"id": "wiki-companion",
 	"name": "Wiki Companion",
-	"version": "1.26.0",
+	"version": "1.26.1",
 	"minAppVersion": "1.7.2",
 	"description": "A calendar, task board, reminders/finance view and time tracker over tagged notes -- Month/Week/Day views, drag-to-reschedule/resize, repeating events, an editable agenda; delete to trash; edits write back only the field you changed.",
 	"author": "Mo",
