@@ -8,6 +8,7 @@ import {
 	getInvoices,
 	getReminders,
 	monthlyEquivalentCost,
+	setInvoicePaid,
 } from "./data";
 import type { RecurKind } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
@@ -272,12 +273,14 @@ export class FinanceView extends ItemView {
 	/** Income -- every invoice ever generated (see getInvoices in data.ts),
 	 * summed per currency symbol since a client can be billed in a
 	 * different currency from another and the two shouldn't be merged into
-	 * one misleading total. This total is every invoice ever raised, not
-	 * just paid ones -- Companion doesn't reliably know an invoice's status
-	 * (see getInvoices' doc comment), so "Income" here means invoiced, not
-	 * collected. Read-only: rows open the invoice note itself, but creating
-	 * or amending an invoice goes through the dedicated Invoice Create
-	 * Procedure, not this view. */
+	 * one misleading total. The headline total is every invoice ever
+	 * raised, invoiced not collected, same as always -- but each row also
+	 * carries its own `paid` flag now (see setInvoicePaid in data.ts), and
+	 * the line under the total splits out how much of it has actually come
+	 * in. Otherwise still read-only: rows open the invoice note itself, and
+	 * creating or amending an invoice's own content goes through the
+	 * dedicated Invoice Create Procedure, not this view -- Paid is the one
+	 * thing this view itself writes. */
 	private renderIncome(parent: HTMLElement): void {
 		const items = this.invoices;
 		const list = parent.createDiv({ cls: "companion-finance-list" });
@@ -288,18 +291,25 @@ export class FinanceView extends ItemView {
 		}
 
 		const totals = new Map<string, number>();
+		const paidTotals = new Map<string, number>();
 		for (const inv of items) {
 			if (inv.amount == null) continue;
 			const key = inv.currencySymbol || "£";
 			totals.set(key, (totals.get(key) ?? 0) + inv.amount);
+			if (inv.paid) paidTotals.set(key, (paidTotals.get(key) ?? 0) + inv.amount);
 		}
 		const totalText = [...totals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
+		const paidText = [...paidTotals.entries()].map(([sym, amt]) => `${sym}${amt.toFixed(2)}`).join(" + ");
 
 		const groupTitle = list.createDiv({ cls: "companion-list-group-title" });
-		groupTitle.createSpan({ text: `Income (${items.length})${totalText ? ` — ${totalText}` : ""}` });
+		groupTitle.createSpan({ text: `Income (${items.length})${totalText ? ` — ${totalText} invoiced` : ""}` });
+		if (paidText) {
+			list.createDiv({ cls: "companion-empty", text: `${paidText} paid so far` });
+		}
 
 		for (const inv of items) {
 			const row = list.createDiv({ cls: "companion-list-row" });
+			row.toggleClass("companion-invoice-row-paid", inv.paid);
 
 			row.createDiv({
 				cls: "companion-list-row-date",
@@ -313,6 +323,19 @@ export class FinanceView extends ItemView {
 				cls: "companion-subscription-cost",
 				text: inv.amount != null ? `${inv.currencySymbol}${inv.amount.toFixed(2)}` : "—",
 			});
+
+			const paidBtn = row.createEl("button", {
+				cls: "companion-icon-btn",
+				attr: { "aria-label": inv.paid ? "Mark unpaid" : "Mark paid" },
+			});
+			paidBtn.toggleClass("companion-invoice-paid-btn-active", inv.paid);
+			setIcon(paidBtn, inv.paid ? "check-circle" : "circle");
+			paidBtn.onclick = () => {
+				setInvoicePaid(this.app, inv.file, !inv.paid).then(
+					() => void this.refresh(),
+					(err: Error) => new Notice(err.message)
+				);
+			};
 		}
 	}
 

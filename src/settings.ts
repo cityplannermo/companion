@@ -101,48 +101,60 @@ export class CompanionSettingTab extends PluginSettingTab {
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [
 			{
-				name: "Daily time goal (hours)",
-				desc: "Shows today's progress and a day-streak in the Time view once tracked hours reach this most days. Leave at 0 to turn it off.",
-				control: {
-					type: "number",
-					key: "dailyGoalHours",
-					placeholder: "e.g. 5",
-					min: 0,
-				},
+				type: "group",
+				heading: "General",
+				items: [
+					{
+						name: "Confirm before deleting",
+						desc: "Ask before moving a note to trash from the calendar, tasks, reminders or time views. Off by default -- delete happens immediately.",
+						control: {
+							type: "toggle",
+							key: "confirmBeforeDelete",
+						},
+					},
+					{
+						name: "Notify when something starts",
+						desc: "Fires a desktop notification when a timed Reminder, Task, Event or Meeting's start time arrives. Off by default. All-day items (no specific time set) never notify. Advance reminders (1 day/week/month before) are set per item, via the \"Remind\" field in the New/Edit item dialog.",
+						control: {
+							type: "toggle",
+							key: "dueNotifications",
+						},
+					},
+				],
 			},
 			{
-				name: "Round time entries",
-				desc: "Rounds each tracked entry's duration up to the chosen increment when you stop the timer.",
-				control: {
-					type: "dropdown",
-					key: "roundingMinutes",
-					options: ROUNDING_OPTIONS,
-				},
-			},
-			{
-				name: "Week starts on",
-				desc: "Which day starts the Time view's weekly total.",
-				control: {
-					type: "dropdown",
-					key: "weekStartsOn",
-					options: WEEK_START_OPTIONS,
-				},
-			},
-			{
-				name: "Confirm before deleting",
-				desc: "Ask before moving a note to trash from the calendar, tasks, reminders or time views. Off by default -- delete happens immediately.",
-				control: {
-					type: "toggle",
-					key: "confirmBeforeDelete",
-				},
-			},
-			{
-				name: "Notify when something starts",
-				desc: "Fires a desktop notification when a timed Reminder, Task, Event or Meeting's start time arrives. Off by default. All-day items (no specific time set) never notify. Advance reminders (1 day/week/month before) are set per item, via the \"Remind\" field in the New/Edit item dialog.",
-				control: {
-					type: "toggle",
-					key: "dueNotifications",
-				},
+				type: "group",
+				heading: "Time tracking",
+				items: [
+					{
+						name: "Daily time goal (hours)",
+						desc: "Shows today's progress and a day-streak in the Time view once tracked hours reach this most days. Leave at 0 to turn it off.",
+						control: {
+							type: "number",
+							key: "dailyGoalHours",
+							placeholder: "e.g. 5",
+							min: 0,
+						},
+					},
+					{
+						name: "Round time entries",
+						desc: "Rounds each tracked entry's duration up to the chosen increment when you stop the timer.",
+						control: {
+							type: "dropdown",
+							key: "roundingMinutes",
+							options: ROUNDING_OPTIONS,
+						},
+					},
+					{
+						name: "Week starts on",
+						desc: "Which day starts the Time view's weekly total.",
+						control: {
+							type: "dropdown",
+							key: "weekStartsOn",
+							options: WEEK_START_OPTIONS,
+						},
+					},
+				],
 			},
 			{
 				type: "group",
@@ -241,6 +253,34 @@ export class CompanionSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		new Setting(containerEl).setName("General").setHeading();
+
+		new Setting(containerEl)
+			.setName("Confirm before deleting")
+			.setDesc(
+				"Ask before moving a note to trash from the calendar, tasks, reminders or time views. Off by default -- delete happens immediately."
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.confirmBeforeDelete).onChange((value) => {
+					this.plugin.settings.confirmBeforeDelete = value;
+					void this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Notify when something starts")
+			.setDesc(
+				'Fires a desktop notification when a timed Reminder, Task, Event or Meeting\'s start time arrives. Off by default. All-day items (no specific time set) never notify. Advance reminders (1 day/week/month before) are set per item, via the "Remind" field in the New/Edit item dialog.'
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.dueNotifications).onChange((value) => {
+					this.plugin.settings.dueNotifications = value;
+					void this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl).setName("Time tracking").setHeading();
+
 		new Setting(containerEl)
 			.setName("Daily time goal (hours)")
 			.setDesc(
@@ -271,18 +311,6 @@ export class CompanionSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Confirm before deleting")
-			.setDesc(
-				"Ask before moving a note to trash from the calendar, tasks, reminders or time views. Off by default -- delete happens immediately."
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.confirmBeforeDelete).onChange((value) => {
-					this.plugin.settings.confirmBeforeDelete = value;
-					void this.plugin.saveSettings();
-				})
-			);
-
-		new Setting(containerEl)
 			.setName("Week starts on")
 			.setDesc("Which day starts the Time view's weekly total.")
 			.addDropdown((dropdown) =>
@@ -293,18 +321,6 @@ export class CompanionSettingTab extends PluginSettingTab {
 						this.plugin.settings.weekStartsOn = value as CompanionSettings["weekStartsOn"];
 						void this.plugin.saveSettings();
 					})
-			);
-
-		new Setting(containerEl)
-			.setName("Notify when something starts")
-			.setDesc(
-				'Fires a desktop notification when a timed Reminder, Task, Event or Meeting\'s start time arrives. Off by default. All-day items (no specific time set) never notify. Advance reminders (1 day/week/month before) are set per item, via the "Remind" field in the New/Edit item dialog.'
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.dueNotifications).onChange((value) => {
-					this.plugin.settings.dueNotifications = value;
-					void this.plugin.saveSettings();
-				})
 			);
 
 		new Setting(containerEl).setName("Calendar").setHeading();

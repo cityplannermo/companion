@@ -53,7 +53,12 @@
 }
 
 /* Minimalist icon-only button -- no border, no fill, just the glyph --
-   used for the unified "+" create button and the agenda collapse toggle.
+   used for the unified "+" create button, the agenda collapse toggle, the
+   mini timer's controls, and every other borderless icon-only button in
+   the plugin. One shared shape (a circle) and one shared hover language
+   (icon turns accent-purple, a faint background fills in) across all of
+   them -- see also .companion-time-play and .companion-item-rename-btn
+   below, which follow the same two rules at their own, denser sizing.
    Overrides `.companion-nav button`'s boxed look where the two overlap. */
 
 .companion-icon-btn {
@@ -65,11 +70,11 @@
 	color: var(--text-muted);
 	cursor: pointer;
 	padding: 8px;
-	border-radius: 4px;
+	border-radius: 50%;
 }
 
 .companion-icon-btn:hover {
-	color: var(--text-normal);
+	color: var(--interactive-accent);
 	background: var(--background-modifier-hover);
 }
 
@@ -135,6 +140,14 @@
 .companion-dot-subscription,
 .companion-pill-subscription {
 	background: var(--companion-color-subscription, #2fb6a3);
+}
+
+/* Deliberately the most muted of the seven -- a Post pin is read-only
+   (see CompanionEventType in data.ts), not something to act on, so it
+   should read as quieter than the others rather than competing with them. */
+.companion-dot-post,
+.companion-pill-post {
+	background: var(--companion-color-post, #7c93b3);
 }
 
 .companion-grid {
@@ -565,6 +578,24 @@
 	white-space: nowrap;
 }
 
+/* Income row's own Paid toggle (see setInvoicePaid in data.ts) -- an empty
+   circle at rest, a filled green check once marked paid. Deliberately its
+   own colour rather than the shared accent-purple hover language every
+   other .companion-icon-btn uses, since a paid invoice reads as "done",
+   not "actionable" -- green rather than purple keeps that distinct. */
+.companion-invoice-paid-btn-active {
+	color: var(--color-green, #5fbf7a);
+}
+
+.companion-invoice-paid-btn-active:hover {
+	color: var(--color-green, #5fbf7a);
+}
+
+.companion-invoice-row-paid .companion-list-row-title,
+.companion-invoice-row-paid .companion-subscription-cost {
+	color: var(--text-faint);
+}
+
 /* Invoice generator modal */
 
 .companion-invoice-modal .companion-event-editor-client-row select,
@@ -719,10 +750,15 @@
 	flex-shrink: 0;
 	margin-left: 4px;
 	padding: 8px;
+	border-radius: 50%;
+	background: transparent;
 }
 
+/* Same hover language as .companion-icon-btn above -- icon turns accent-
+   purple, a faint circular background fills in behind it. */
 .companion-item-rename-btn:hover {
-	color: var(--text-normal);
+	color: var(--interactive-accent);
+	background: var(--background-modifier-hover);
 }
 
 .companion-item-rename-btn svg {

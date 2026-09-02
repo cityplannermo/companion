@@ -23,7 +23,12 @@ function expectFile(af: TAbstractFile | null, path: string): TFile {
 	return af;
 }
 
-export type CompanionEventType = "meeting" | "reminder" | "task" | "invoice" | "event";
+// "post" is a read-only calendar pin, not a Companion-managed type like the
+// other five -- Companion never creates, edits or deletes a Post note (that's
+// the content-drafting workflow's own job). See the second loop in
+// buildIndex() below, and CalendarView's wireEventInteractions(), which
+// opens a post note on click but skips drag/edit/delete entirely for it.
+export type CompanionEventType = "meeting" | "reminder" | "task" | "invoice" | "event" | "post";
 
 export interface CompanionEvent {
 	file: TFile;
@@ -172,6 +177,19 @@ export function remindLeadLabel(lead: RemindLead): string {
 	return "1 month before";
 }
 
+// Strips the note-type suffix off a Post filename for a cleaner calendar
+// pill -- "Grey Belt and GB7(g) - Blog Post" becomes just "Grey Belt and
+// GB7(g)". Only strips the exact suffixes System/Rules.md's content
+// workflow actually produces; anything else is left as-is rather than
+// guessed at.
+const POST_TITLE_SUFFIXES = [" - Blog Post", " - LinkedIn Post", " - Post Idea"];
+function postTitle(basename: string): string {
+	for (const suffix of POST_TITLE_SUFFIXES) {
+		if (basename.endsWith(suffix)) return basename.slice(0, -suffix.length);
+	}
+	return basename;
+}
+
 /** Builds a date -> events index from every markdown file currently in the vault. */
 export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 	const index = new Map<string, CompanionEvent[]>();
@@ -205,6 +223,33 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 		const bucket = index.get(date);
 		if (bucket) bucket.push(event);
 		else index.set(date, [event]);
+	}
+
+	// Posts -- a deliberately separate, narrower pass: only a `post`-tagged
+	// note with an actual `published:` date earns a calendar pin (an Idea or
+	// an In-Progress draft has nothing to plot yet). Everything else on a
+	// CompanionEvent that implies Companion can edit it stays undefined,
+	// since it can't -- see the CompanionEventType comment above.
+	for (const file of app.vault.getMarkdownFiles()) {
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) continue;
+		if (!getTags(frontmatter).includes("post")) continue;
+
+		const published = normaliseDate(frontmatter["published"]);
+		if (!published) continue;
+
+		const event: CompanionEvent = {
+			file,
+			type: "post",
+			title: postTitle(file.basename),
+			date: published,
+			time: "00:00",
+		};
+
+		const bucket = index.get(published);
+		if (bucket) bucket.push(event);
+		else index.set(published, [event]);
 	}
 
 	return index;
@@ -359,13 +404,16 @@ export type QuickCreateType = "reminder" | "task" | "event" | "meeting";
 
 // Every type's folder, including Invoice -- used by applyEventEdit() below
 // when moving a note between types, even though quickCreateFrontmatter()
-// itself never produces an Invoice.
+// itself never produces an Invoice. "post" is here only so this compiles
+// as a total Record -- createQuickNote()/applyEventEdit() are never called
+// with type "post" (see the CompanionEventType comment), so it's never read.
 const QUICK_CREATE_FOLDER: Record<CompanionEventType, string> = {
 	reminder: "Admin/Reminders",
 	task: "Admin/Tasks",
 	event: "Admin/Events",
 	meeting: "Admin/Meetings",
 	invoice: "Admin/Invoices",
+	post: "Content/Posts",
 };
 
 function quickCreateFrontmatter(
@@ -1428,6 +1476,7 @@ export interface CompanionInvoice {
 	date: string | null; // YYYY-MM-DD, the invoice's issue date
 	amount: number | null; // null if a total couldn't be parsed from the body
 	currencySymbol: string; // "£" or "$" -- "" if amount is null
+	paid: boolean; // `paid: true` in frontmatter -- see setInvoicePaid() below. Absent/false = not yet paid.
 }
 
 const TOTAL_DUE_RE = /\*\*Total Due:\*\*\s*([£$])([\d,]+\.\d{2})/;
@@ -1458,10 +1507,24 @@ export async function getInvoices(app: App): Promise<CompanionInvoice[]> {
 			date: normaliseDate(frontmatter?.["date"]) ?? parsed?.dateStr ?? null,
 			amount: match ? parseFloat(match[2].replace(/,/g, "")) : null,
 			currencySymbol: match ? match[1] : "",
+			paid: frontmatter?.["paid"] === true,
 		});
 	}
 
 	return invoices.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+}
+
+/** Sets or clears an invoice's own `paid:` flag -- the one write this whole
+ * area of the plugin makes, and deliberately narrow: just this one field on
+ * an existing Invoice note, never its client/date/line items/total, which
+ * still only ever come from the Invoice Create Procedure. Lets the Finance
+ * tab's Income section distinguish invoiced-but-unpaid from actually
+ * collected, which it otherwise can't know (see getInvoices' own comment). */
+export async function setInvoicePaid(app: App, file: TFile, paid: boolean): Promise<void> {
+	await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+		if (paid) fm["paid"] = true;
+		else delete fm["paid"];
+	});
 }
 
 // en-GB's Intl month abbreviation gives "Sept" for September (4 letters,

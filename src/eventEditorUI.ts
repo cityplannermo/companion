@@ -48,7 +48,7 @@ function resolveType(value: DropdownValue): QuickCreateType {
 /** The dropdown option that best represents an existing item's current
  * shape, for pre-selecting it when editing (or defaulting a new one). */
 function dropdownValueFor(type: CompanionEventType, recur?: RecurKind, cost?: number, invoiceReminder?: boolean): DropdownValue {
-	if (type === "invoice") return "reminder"; // unreachable in practice -- typeSelect is never built for an Invoice, see isInvoice above
+	if (type === "invoice" || type === "post") return "reminder"; // unreachable in practice -- this modal is never opened for an Invoice (see isInvoice above) or a Post (see CompanionEventType's comment)
 	if (type !== "reminder") return type;
 	if (invoiceReminder) return "invoiceReminder";
 	if (recur && cost != null) return "subscription";
@@ -196,16 +196,32 @@ export class EventEditorModal extends Modal {
 		}
 		if (isInvoice) remindRow.addClass("companion-hidden");
 
-		// Cost only means anything on a Reminder -- what makes one a
-		// subscription, alongside Repeat, in the Reminders view's own
-		// running total. Shown/hidden the same way the client row is.
+		// Cost only means anything on a Reminder. Where the type dropdown is
+		// genuinely a choice (the Calendar/Dashboard's own "New item"), it's
+		// shown only for Subscription/Invoice reminder -- picking either of
+		// those is already the signal that a cost is coming, so a plain
+		// Reminder/Meeting/Event/Task keeps this dialog uncluttered. Where
+		// there's no dropdown at all (Finance's own +Subscription/+Expense
+		// buttons -- typeSelect is null, type locked to Reminder by design,
+		// see openCreateCost() in FinanceView.ts), Cost is the whole point
+		// of those buttons and always shows.
 		const costRow = contentEl.createDiv({ cls: "companion-event-editor-recur-row" });
 		costRow.createSpan({ text: "Cost (£/period): " });
 		const costInput = costRow.createEl("input", { attr: { type: "number", min: "0", step: "0.01", placeholder: "Optional" } });
 		costInput.value = this.initial.cost != null ? String(this.initial.cost) : "";
 		const syncCostVisibility = () => {
-			const currentType = typeSelect?.value ?? this.initial.type;
-			costRow.toggleClass("companion-hidden", currentType !== "reminder" && currentType !== "subscription");
+			if (!typeSelect) {
+				costRow.removeClass("companion-hidden");
+				return;
+			}
+			// Also stays visible while editing an item that already has a cost
+			// set (an existing Expense, say) even if its dropdown value reads
+			// as plain "reminder" -- otherwise opening Edit on one through the
+			// Calendar/agenda pencil (rather than Finance's own row) would hide
+			// its cost from view entirely.
+			const currentType = typeSelect.value;
+			const relevant = currentType === "subscription" || currentType === "invoiceReminder" || costInput.value !== "";
+			costRow.toggleClass("companion-hidden", !relevant);
 		};
 		syncCostVisibility();
 		typeSelect?.addEventListener("change", syncCostVisibility);

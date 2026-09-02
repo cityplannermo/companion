@@ -52,6 +52,7 @@ function typeLabel(type: CompanionEvent["type"]): string {
 	if (type === "event") return "Event";
 	if (type === "invoice") return "Invoice";
 	if (type === "reminder") return "Reminder";
+	if (type === "post") return "Post";
 	return "Task";
 }
 

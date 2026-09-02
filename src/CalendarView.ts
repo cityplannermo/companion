@@ -33,13 +33,14 @@ const TYPE_LABELS: Record<CalendarVisualType, string> = {
 	invoice: "Invoice",
 	event: "Event",
 	subscription: "Subscription",
+	post: "Post",
 };
 
 // "Reminder" plus its own row in the legend/day grid for subscriptions, since
 // a subscription is just a recurring Reminder with a cost (see CompanionEvent's
 // `cost` field) rather than a distinct note type of its own -- editing one
 // still goes through the same Reminder fields everywhere else in the plugin.
-const TYPE_ORDER: CalendarVisualType[] = ["meeting", "event", "reminder", "subscription", "task", "invoice"];
+const TYPE_ORDER: CalendarVisualType[] = ["meeting", "event", "reminder", "subscription", "task", "invoice", "post"];
 
 function visualType(ev: CompanionEvent): CalendarVisualType {
 	// An "Invoice reminder" borrows the real Invoice colour deliberately --
@@ -802,6 +803,14 @@ export class CalendarView extends ItemView {
 	 * Delete -- there's no real file yet for those to act on, and clicking
 	 * through must create one first. */
 	private wireEventInteractions(el: HTMLElement, ev: CompanionEvent): void {
+		// A Post pin is read-only here -- no drag (there's no `date` field to
+		// write to), no edit/delete menu (Companion doesn't own this note's
+		// shape), just open it like any other note. See the CompanionEventType
+		// comment in data.ts.
+		if (ev.type === "post") {
+			makeOpenable(this.app, el, ev.file);
+			return;
+		}
 		if (ev.virtualOf) {
 			el.addClass("companion-pill-virtual");
 			el.onclick = (e) => {
@@ -947,6 +956,19 @@ export class CalendarView extends ItemView {
 
 	private renderAgendaItem(parent: HTMLElement, ev: CompanionEvent): void {
 		const row = parent.createDiv({ cls: "companion-item" });
+
+		// Same read-only treatment as wireEventInteractions() above: a dot,
+		// an openable title, a label -- no context menu, no drag, no edit
+		// pencil, since Companion doesn't own this note's shape.
+		if (ev.type === "post") {
+			row.createSpan({ cls: `companion-dot companion-dot-${visualType(ev)}` });
+			const txt = row.createDiv({ cls: "companion-item-txt" });
+			const title = txt.createDiv({ cls: "companion-item-title", text: ev.title });
+			makeOpenable(this.app, title, ev.file);
+			txt.createDiv({ cls: "companion-item-sub", text: TYPE_LABELS[visualType(ev)] });
+			return;
+		}
+
 		if (ev.virtualOf) {
 			row.addClass("companion-pill-virtual");
 			row.oncontextmenu = (e) => this.showVirtualMenu(e, ev);
