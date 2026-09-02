@@ -1177,6 +1177,11 @@
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
+.companion-time-client-table-flush {
+	border-bottom: none;
+	padding-bottom: 0;
+}
+
 .companion-time-client-row {
 	display: flex;
 	align-items: center;

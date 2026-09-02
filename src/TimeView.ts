@@ -319,7 +319,11 @@ export class TimeView extends ItemView {
 
 		if (rows.length === 0) return;
 
-		const table = parent.createDiv({ cls: "companion-time-client-table" });
+		// A companion-note (its own border-top) follows directly below --
+		// this table's usual border-bottom would double it up into two
+		// adjacent lines, so it's suppressed here specifically (Report
+		// mode's own table, with no note straight after, keeps its border).
+		const table = parent.createDiv({ cls: "companion-time-client-table companion-time-client-table-flush" });
 		for (const { client, hours, rate } of rows) {
 			const row = table.createDiv({ cls: "companion-time-client-row" });
 			row.createSpan({ cls: "companion-time-client-name", text: client });

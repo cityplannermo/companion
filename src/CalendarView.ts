@@ -166,13 +166,21 @@ export class CalendarView extends ItemView {
 		root.empty();
 		root.addClass("companion-calendar-root");
 
+		// The agenda panel only earns its keep in Month view -- it's the
+		// only way to see a clicked day's item list there without losing the
+		// month grid. In Week/Day it just repeats what the hourly grid
+		// already shows for the same days, so it's not offered at all
+		// (and its fold toggle goes with it, which also stops that toggle
+		// wrapping onto its own line in the header on narrow screens).
+		const showAgenda = this.mode === "month" && !this.settings.agendaCollapsed;
+
 		const layout = root.createDiv({ cls: "companion-layout" });
-		layout.toggleClass("companion-agenda-collapsed", this.settings.agendaCollapsed);
+		layout.toggleClass("companion-agenda-collapsed", !showAgenda);
 		const calArea = layout.createDiv({ cls: "companion-cal-area" });
 
 		this.renderHeader(calArea);
 
-		if (!this.settings.agendaCollapsed) {
+		if (showAgenda) {
 			const resizeHandle = layout.createDiv({ cls: "companion-agenda-resize-handle" });
 			const agenda = layout.createDiv({ cls: "companion-agenda" });
 			agenda.style.setProperty("--companion-agenda-width", `${this.settings.agendaWidthPx}px`);
@@ -282,16 +290,20 @@ export class CalendarView extends ItemView {
 			this.render();
 		};
 
-		const toggleAgenda = nav.createEl("button", {
-			cls: "companion-icon-btn",
-			attr: { "aria-label": this.settings.agendaCollapsed ? "Show agenda" : "Hide agenda" },
-		});
-		setIcon(toggleAgenda, this.settings.agendaCollapsed ? "panel-right-open" : "panel-right-close");
-		toggleAgenda.onclick = () => {
-			this.settings.agendaCollapsed = !this.settings.agendaCollapsed;
-			void this.persistSettings();
-			this.render();
-		};
+		// Agenda (and its fold toggle) is Month-only -- see the comment in
+		// render() -- so the toggle simply isn't built for Week/Day at all.
+		if (this.mode === "month") {
+			const toggleAgenda = nav.createEl("button", {
+				cls: "companion-icon-btn",
+				attr: { "aria-label": this.settings.agendaCollapsed ? "Show agenda" : "Hide agenda" },
+			});
+			setIcon(toggleAgenda, this.settings.agendaCollapsed ? "panel-right-open" : "panel-right-close");
+			toggleAgenda.onclick = () => {
+				this.settings.agendaCollapsed = !this.settings.agendaCollapsed;
+				void this.persistSettings();
+				this.render();
+			};
+		}
 
 		prev.onclick = () => {
 			this.step(-1);
