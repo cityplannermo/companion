@@ -310,6 +310,10 @@ export class CalendarView extends ItemView {
 			};
 		}
 
+		const addBtn = nav.createEl("button", { cls: "companion-icon-btn companion-icon-btn-accent", attr: { "aria-label": "New item" } });
+		setIcon(addBtn, "plus");
+		addBtn.onclick = () => this.openCreateAt(this.selected, null);
+
 		prev.onclick = () => {
 			this.step(-1);
 			this.render();
@@ -918,9 +922,6 @@ export class CalendarView extends ItemView {
 	private renderAgenda(parent: HTMLElement): void {
 		const titleRow = parent.createDiv({ cls: "companion-agenda-header" });
 		titleRow.createEl("h3", { text: "Agenda", cls: "companion-agenda-title" });
-		const addBtn = titleRow.createEl("button", { cls: "companion-icon-btn companion-icon-btn-accent", attr: { "aria-label": "New item" } });
-		setIcon(addBtn, "plus");
-		addBtn.onclick = () => this.openCreateAt(this.selected, null);
 
 		parent.createDiv({
 			cls: "companion-agenda-date",

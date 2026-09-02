@@ -80,11 +80,12 @@
 }
 
 .companion-icon-btn-accent {
-	color: var(--interactive-accent);
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
 }
 
 .companion-icon-btn-accent:hover {
-	background: var(--interactive-accent);
+	background: var(--interactive-accent-hover);
 	color: var(--text-on-accent);
 }
 

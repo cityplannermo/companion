@@ -96,9 +96,6 @@ export class DashboardEmbed extends MarkdownRenderChild {
 
 	refresh(): void {
 		this.running = getRunningTimeEntry(this.app);
-		this.containerEl.empty();
-		this.containerEl.addClass("companion-dashboard-root");
-		this.containerEl.addClass("companion-dashboard-embed");
 		this.render();
 	}
 
@@ -113,8 +110,16 @@ export class DashboardEmbed extends MarkdownRenderChild {
 		this.render();
 	}
 
+	/** Rebuilds the whole embed from scratch -- always starts by emptying
+	 * containerEl, since this is called not just from refresh() (a vault
+	 * change) but from toggleSection() too (a fold header click), which
+	 * doesn't re-read the vault but still needs a clean redraw rather than
+	 * appending a second copy of everything on top of what's already there. */
 	private render(): void {
 		const root = this.containerEl;
+		root.empty();
+		root.addClass("companion-dashboard-root");
+		root.addClass("companion-dashboard-embed");
 		this.elapsedEl = null;
 
 		this.renderHeader(root);

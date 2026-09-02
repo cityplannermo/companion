@@ -151,34 +151,28 @@ export class CompanionSettingTab extends PluginSettingTab {
 				},
 			},
 			{
-				type: "group",
-				heading: "Advance reminders",
-				items: [
-					{
-						name: "Remind 1 day before",
-						desc: "Also notify a day ahead of a dated Reminder, Task, Event or Meeting -- unlike \"Notify when something starts\" above, this works for all-day items too.",
-						control: {
-							type: "toggle",
-							key: "notifyDayBefore",
-						},
-					},
-					{
-						name: "Remind 1 week before",
-						desc: "Also notify a week ahead.",
-						control: {
-							type: "toggle",
-							key: "notifyWeekBefore",
-						},
-					},
-					{
-						name: "Remind 1 month before",
-						desc: "Also notify a month (30 days) ahead -- handy for a yearly or biennial subscription renewal.",
-						control: {
-							type: "toggle",
-							key: "notifyMonthBefore",
-						},
-					},
-				],
+				name: "Remind 1 day before",
+				desc: "Also notify a day ahead of a dated Reminder, Task, Event or Meeting -- unlike \"Notify when something starts\" above, this works for all-day items too.",
+				control: {
+					type: "toggle",
+					key: "notifyDayBefore",
+				},
+			},
+			{
+				name: "Remind 1 week before",
+				desc: "Also notify a week ahead.",
+				control: {
+					type: "toggle",
+					key: "notifyWeekBefore",
+				},
+			},
+			{
+				name: "Remind 1 month before",
+				desc: "Also notify a month (30 days) ahead -- handy for a yearly or biennial subscription renewal.",
+				control: {
+					type: "toggle",
+					key: "notifyMonthBefore",
+				},
 			},
 			{
 				type: "group",
