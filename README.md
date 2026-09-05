@@ -73,7 +73,7 @@ Report shows six stat tiles at a glance: Today, This week and This month (fixed 
 
 ## Posts
 
-The Posts gallery is a card view over every note tagged `post`, for tracking blog and social content through to publication without a separate tool. Each card shows its status, platform and either a "Published" or "Scheduled" date; **+ Post** writes a new Post idea note exactly as the Calendar's own "+ New item" dropdown does (see **What it writes** above). A platform filter appears once more than one platform is in use. Same as everywhere Companion touches a Post: this tab can create one, but clicking a card just opens the note itself, since Companion never edits or deletes a Post once it exists.
+The Posts gallery is a card view over every note tagged `post`, for tracking blog and social content through to publication without a separate tool. A card shows a cover image (the first image embedded in the note itself, if it has one), its status, platform and either a "Published" or "Scheduled" date -- each of those is optional and toggleable from the gallery's own **⋮** menu, so you can show just what's useful. **+ Post** writes a new Post idea note exactly as the Calendar's own "+ New item" dropdown does (see **What it writes** above). A platform filter appears once more than one platform is in use. Same as everywhere Companion touches a Post: this tab can create one, but clicking a card just opens the note itself, since Companion never edits or deletes a Post once it exists.
 
 ## Daily Note summary
 

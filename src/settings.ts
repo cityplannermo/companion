@@ -37,6 +37,15 @@ export interface CompanionSettings {
 	financeShowIncome: boolean;
 	financeShowInvoiced: boolean;
 
+	// Posts gallery: which properties show on a card, toggled from the
+	// gallery's own kebab menu (Mo's own reference point: Notion's "show
+	// properties in the view" toggle) -- a display preference, not vault
+	// content, so it lives here rather than on any note.
+	postsShowCover: boolean;
+	postsShowStatus: boolean;
+	postsShowPlatform: boolean;
+	postsShowDate: boolean;
+
 	// Invoicing -- Mo's own details are constant across every invoice, so
 	// they live here rather than being retyped (or copied off a previous
 	// invoice) each time. A client's own billing details live on their
@@ -72,6 +81,11 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
 	financeShowExpenses: true,
 	financeShowIncome: true,
 	financeShowInvoiced: true,
+
+	postsShowCover: true,
+	postsShowStatus: true,
+	postsShowPlatform: true,
+	postsShowDate: true,
 
 	myName: "",
 	myAddress: "",

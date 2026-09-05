@@ -61,6 +61,17 @@
    below, which follow the same two rules at their own, denser sizing.
    Overrides `.companion-nav button`'s boxed look where the two overlap. */
 
+/* One height, mobile and desktop alike (Mo's own rule, 1.33.2, after the
+   kebab/+ buttons read as too small on a phone): --companion-control-height
+   is the single source of truth every icon button and form field sizes
+   against, rather than a desktop size plus a separate mobile bump. Always
+   set width equal to this same value wherever border-radius: 50% is used --
+   a mismatched width/height renders an oval, not a circle (a real bug,
+   twice now: see Design System.md). */
+:root {
+	--companion-control-height: 40px;
+}
+
 .companion-icon-btn {
 	display: inline-flex;
 	align-items: center;
@@ -69,8 +80,8 @@
 	border: none;
 	color: var(--text-muted);
 	cursor: pointer;
-	width: 32px;
-	height: 32px;
+	width: var(--companion-control-height);
+	height: var(--companion-control-height);
 	padding: 0;
 	flex-shrink: 0;
 	border-radius: 50%;
@@ -82,8 +93,8 @@
 }
 
 .companion-icon-btn svg {
-	width: 16px;
-	height: 16px;
+	width: 18px;
+	height: 18px;
 	display: block;
 }
 
@@ -363,11 +374,13 @@
 }
 
 .companion-mode-toggle button {
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 6px;
-	padding: 7px 12px;
+	padding: 0 12px;
 	cursor: pointer;
 	font-size: 0.85em;
 }
@@ -604,12 +617,15 @@
 .companion-invoice-modal .companion-event-editor-client-row select,
 .companion-invoice-modal .companion-event-editor-times input {
 	width: 100%;
+	min-width: 0;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.9em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 0 8px;
 }
 
 .companion-invoice-review-table {
@@ -716,14 +732,18 @@
 	color: var(--text-muted);
 }
 
-.companion-invoice-field-row input {
+.companion-invoice-field-row input,
+.companion-invoice-field-row select {
 	flex: 1;
+	min-width: 0;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.9em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 0 8px;
 }
 
 /* Calendar editing: drag-to-reschedule, rename, quick-create */
@@ -753,8 +773,8 @@
 	cursor: pointer;
 	flex-shrink: 0;
 	margin-left: 4px;
-	width: 30px;
-	height: 30px;
+	width: var(--companion-control-height);
+	height: var(--companion-control-height);
 	padding: 0;
 	border-radius: 50%;
 	background: transparent;
@@ -768,8 +788,8 @@
 }
 
 .companion-item-rename-btn svg {
-	width: 14px;
-	height: 14px;
+	width: 16px;
+	height: 16px;
 }
 
 .companion-quick-create-dash {
@@ -826,11 +846,14 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
+	padding: 0 12px;
 }
 
 .companion-btn-icon-text svg {
-	width: 12px;
-	height: 12px;
+	width: 14px;
+	height: 14px;
 }
 
 /* Reminders view */
@@ -1226,8 +1249,8 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 28px;
-	height: 28px;
+	width: var(--companion-control-height);
+	height: var(--companion-control-height);
 	background: transparent;
 	border: none;
 	border-radius: 50%;
@@ -1243,8 +1266,8 @@
 }
 
 .companion-time-play svg {
-	width: 15px;
-	height: 15px;
+	width: 18px;
+	height: 18px;
 	display: block;
 }
 
@@ -1289,13 +1312,16 @@
 }
 
 .companion-time-month-nav button {
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 6px;
-	padding: 7px 12px;
+	padding: 0 12px;
 	cursor: pointer;
 	display: flex;
+	align-items: center;
 }
 
 .companion-time-month-nav button:disabled {
@@ -1313,11 +1339,13 @@
 
 .companion-time-report-filters select,
 .companion-time-report-filters input[type="date"] {
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 6px;
-	padding: 6px 8px;
+	padding: 0 8px;
 	font-size: 0.85em;
 }
 
@@ -1378,11 +1406,13 @@
 .companion-filter-input {
 	flex: 1 1 40px;
 	min-width: 40px;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	background: var(--background-primary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 5px;
-	padding: 7px 10px;
+	padding: 0 10px;
 	font-size: 0.85em;
 }
 
@@ -1393,11 +1423,13 @@
 /* Sort-by dropdown -- Tasks and Reminders headers */
 
 .companion-sort-select {
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-muted);
 	border-radius: 5px;
-	padding: 7px 10px;
+	padding: 0 10px;
 	font-size: 0.85em;
 	cursor: pointer;
 }
@@ -1467,17 +1499,14 @@
 		width: auto;
 	}
 
-	/* Header action buttons: full-width and stacked rather than squeezed
-	   onto one row, so labels and tap targets stay comfortable. */
+	/* Header action row spans the full header width so the filter box
+	   (flex: 1, see .companion-filter-input) can actually grow into the
+	   space next to the now-compact .companion-create-pill buttons --
+	   see that class below for why a labelled "+" button no longer needs
+	   a stretched/stacked treatment here at all (1.33.2). */
 	.companion-finance-header-actions,
 	.companion-task-header-controls {
 		width: 100%;
-	}
-
-	.companion-finance-header-actions .companion-btn-icon-text,
-	.companion-task-header-controls .companion-btn-icon-text {
-		flex: 1;
-		justify-content: center;
 	}
 
 	/* Invoice generator: a fixed-width column table doesn't fit a phone
@@ -1523,47 +1552,48 @@
 		display: none;
 	}
 
-	/* A header's filter box takes its own full-width row; the rest of its
-	   controls (mode toggle, sort, add button) then cluster together on
-	   the line below as one group, rather than wrapping item by item and
-	   leaving a stray control alone on its own line. */
-	.companion-filter-input {
-		flex-basis: 100%;
+	/* A "+ New X" pill collapses to a bare Tier-1 circle on mobile --
+	   Mo's own rule, 1.33.2: with the mode toggle/sort dropdown already
+	   moved into the kebab, the label is the one thing left crowding a
+	   header row, and Finance's/Calendar's own "+" was already icon-only
+	   to begin with. The label stays for desktop (see .companion-btn-
+	   icon-text's own base rule) -- this only touches phone widths. */
+	.companion-create-pill {
+		width: var(--companion-control-height);
+		height: var(--companion-control-height);
+		padding: 0;
+		border-radius: 50%;
+		justify-content: center;
+		flex-shrink: 0;
 	}
 
-	/* Icon-only buttons, boxed buttons and form fields now get their
-	   comfortable, touch-friendly sizing everywhere (see the base rules
-	   above) -- the round Time log continue button just gets a further
-	   bump here so it's an easy thumb target. */
-	.companion-time-play {
-		width: 34px;
-		height: 34px;
-	}
-
-	.companion-time-play svg {
-		width: 17px;
-		height: 17px;
+	.companion-create-pill span {
+		display: none;
 	}
 }
 
 
 .companion-jump-date {
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 5px;
-	padding: 7px 10px;
+	padding: 0 10px;
 	font-size: 0.85em;
 }
 
 /* Calendar mode switcher (Month/Week/Day) */
 
 .companion-mode-select {
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	background: var(--background-secondary);
 	border: 1px solid var(--background-modifier-border);
 	color: var(--text-normal);
 	border-radius: 5px;
-	padding: 7px 10px;
+	padding: 0 10px;
 	font-size: 0.85em;
 	cursor: pointer;
 }
@@ -1787,25 +1817,41 @@
    see EventEditorModal's isInvoice branch). Mirrors the Start Timer
    modal's input styling for a consistent look. */
 
+/* Bounds the modal itself to the viewport -- belt-and-braces alongside the
+   min-width: 0 fix below, which was the actual cause of the New/Edit item
+   modal cutting its own left edge off on a phone (1.33.2): a child that
+   can't shrink pushes the whole modal wider than the screen, and nothing
+   here previously stopped that from happening. Never horizontal-scroll to
+   see the rest of a popup -- Mo's own rule. */
+.companion-event-editor {
+	max-width: 100%;
+	box-sizing: border-box;
+	overflow-x: hidden;
+}
+
 .companion-event-editor-title {
 	width: 100%;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.95em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 6px 8px;
+	padding: 0 8px;
 	margin-bottom: 8px;
 }
 
 .companion-event-editor-type {
 	width: 100%;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.9em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 0 8px;
 	margin-bottom: 8px;
 }
 
@@ -1821,12 +1867,14 @@
 
 .companion-event-editor-client-row input {
 	width: 100%;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.9em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 0 8px;
 }
 
 .companion-event-editor-recur-row {
@@ -1838,24 +1886,53 @@
 	color: var(--text-normal);
 }
 
+/* min-width: 0 is the actual fix for the modal-overflow bug (1.33.2): a
+   native <select> won't shrink below its own content's width by default,
+   flex: 1 alone doesn't override that, so a long selected option (the
+   currency dropdown especially, before its label was shortened -- see
+   currencies.ts) could force this whole row, and the modal along with it,
+   wider than the screen. Any select sharing a flex row with something
+   else needs this -- see Design System.md. */
 .companion-event-editor-recur-row select {
 	flex: 1;
+	min-width: 0;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.9em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 0 8px;
+}
+
+/* Cost input, alongside the currency select above in the same row --
+   given its own fixed share of the row (rather than the browser's default
+   number-input width) so the row's layout is predictable and the
+   currency select has a known amount of space to shrink into. */
+.companion-event-editor-cost {
+	flex: 0 1 90px;
+	min-width: 0;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
+	font-size: 0.9em;
+	background: var(--background-primary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	padding: 0 8px;
 }
 
 .companion-event-editor-date {
 	width: 100%;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.9em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 0 8px;
 	margin-bottom: 8px;
 }
 
@@ -1872,12 +1949,15 @@
 
 .companion-event-editor-times input[type="time"] {
 	flex: 1;
+	min-width: 0;
+	height: var(--companion-control-height);
+	box-sizing: border-box;
 	font-size: 0.9em;
 	background: var(--background-primary);
 	color: var(--text-normal);
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 4px;
-	padding: 5px 8px;
+	padding: 0 8px;
 }
 
 .companion-event-editor-controls {
@@ -1936,6 +2016,25 @@
 
 .companion-post-card-cancelled {
 	opacity: 0.6;
+}
+
+/* Cover image (1.33.2, Mo's own reference point: a Notion gallery card's
+   cover) -- negative-margined to cancel the card's own 10px padding so
+   the image runs flush to the card's edges, with just its top corners
+   rounded to match. A card with no cover (see data.ts's firstCoverImage())
+   simply doesn't render this at all, starting with its title instead --
+   no empty space reserved for a cover that isn't there. */
+.companion-post-card-cover {
+	margin: -10px -10px 10px -10px;
+	overflow: hidden;
+	border-radius: 5px 5px 0 0;
+}
+
+.companion-post-card-cover img {
+	display: block;
+	width: 100%;
+	aspect-ratio: 16 / 9;
+	object-fit: cover;
 }
 
 .companion-post-card-title {

@@ -2,6 +2,13 @@
 
 All notable changes to Wiki Companion are recorded here, newest first. Earlier history (before this file existed) is in the [commit log](https://github.com/cityplannermo/companion/commits/main) and the version history in [releases](https://github.com/cityplannermo/companion/releases).
 
+## 1.33.2
+
+- **Fixed**: the New/Edit item popup could cut off its own left edge on a phone whenever the cost/currency row was showing. Currency dropdown options are also shorter now (just the code and symbol, e.g. "GBP (£)") instead of spelling out the full currency name.
+- **Buttons and fields are now the same height everywhere** -- mobile and desktop alike -- rather than a desktop size with little separate mobile treatment.
+- A "+ New ..." button collapses to a plain circular icon on mobile (desktop keeps the label), and now sits on the same row as the filter box next to it instead of on its own line.
+- **Posts gallery**: cards can now show a cover image, taken automatically from the first image embedded in the post itself. Which details a card shows (cover, status, platform, date) can be toggled from the gallery's own "⋮" menu.
+
 ## 1.33.1
 
 Cleared two flags from 1.33.0's automated review: an unsafe (untyped) value passed into a function expecting a string when reading an invoice's currency, and an unused import left behind in the shared item editor.

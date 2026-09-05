@@ -3,6 +3,7 @@ import { CompanionPost, createQuickNote, getPosts } from "./data";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { EventEditorModal } from "./eventEditorUI";
 import { makeOpenable } from "./openHandlers";
+import { addOverflowMenu } from "./overflowMenu";
 import type { CompanionSettings } from "./settings";
 
 export const VIEW_TYPE_POSTS = "companion-posts-view";
@@ -17,6 +18,11 @@ export const VIEW_TYPE_POSTS = "companion-posts-view";
  * here to just that one type), but never edits or deletes an existing one --
  * see CompanionEventType's own comment in data.ts. A card just opens its
  * note; the content-drafting workflow owns everything from there.
+ *
+ * Which properties actually show on a card (cover image, status, platform,
+ * date) is a per-viewer display preference, toggled from this view's own
+ * kebab menu -- Mo's own reference point, Notion's "choose properties
+ * shown in this view." Persisted in settings, not on any note.
  */
 export class PostsView extends ItemView {
 	private posts: CompanionPost[] = [];
@@ -25,7 +31,8 @@ export class PostsView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private settings: CompanionSettings
+		private settings: CompanionSettings,
+		private persistSettings: () => Promise<void> = async () => {}
 	) {
 		super(leaf);
 	}
@@ -100,7 +107,7 @@ export class PostsView extends ItemView {
 
 		const platforms = this.platforms();
 		if (platforms.length > 0) {
-			const platformSelect = controls.createEl("select", { cls: "companion-sort-select" });
+			const platformSelect = controls.createEl("select", { cls: "companion-sort-select companion-mobile-hide" });
 			platformSelect.createEl("option", { text: "All platforms", value: "" });
 			for (const name of platforms) platformSelect.createEl("option", { text: name, value: name });
 			platformSelect.value = this.platformFilter;
@@ -110,10 +117,41 @@ export class PostsView extends ItemView {
 			};
 		}
 
-		const addBtn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
+		// Mobile equivalent of the platform filter above, plus "Show on
+		// cards" -- which properties a card actually displays (Notion's own
+		// "properties shown in this view" toggle is the model here). Shown
+		// on every screen size, not just mobile, since it's the only way to
+		// reach the property toggles at all -- there's no desktop-only
+		// equivalent control for those the way there is for the platform
+		// filter.
+		const platformItems = platforms.map((name) => ({
+			label: name,
+			isActive: this.platformFilter === name,
+			onClick: () => {
+				this.platformFilter = name;
+				this.render();
+			},
+		}));
+		addOverflowMenu(controls, [
+			...(platforms.length > 0
+				? [{ label: "All platforms", isActive: this.platformFilter === "", onClick: () => { this.platformFilter = ""; this.render(); } }, ...platformItems]
+				: []),
+			{ label: "Show cover images", isActive: this.settings.postsShowCover, onClick: () => this.toggleCardProperty("postsShowCover") },
+			{ label: "Show status", isActive: this.settings.postsShowStatus, onClick: () => this.toggleCardProperty("postsShowStatus") },
+			{ label: "Show platform", isActive: this.settings.postsShowPlatform, onClick: () => this.toggleCardProperty("postsShowPlatform") },
+			{ label: "Show date", isActive: this.settings.postsShowDate, onClick: () => this.toggleCardProperty("postsShowDate") },
+		]);
+
+		const addBtn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
 		setIcon(addBtn, "plus");
 		addBtn.createSpan({ text: "Post" });
 		addBtn.onclick = () => this.openCreate();
+	}
+
+	private toggleCardProperty(key: "postsShowCover" | "postsShowStatus" | "postsShowPlatform" | "postsShowDate"): void {
+		this.settings[key] = !this.settings[key];
+		void this.persistSettings();
+		this.render();
 	}
 
 	/** Opens the same shared editor modal every other "+" uses, narrowed to
@@ -156,20 +194,27 @@ export class PostsView extends ItemView {
 		const card = parent.createDiv({ cls: "companion-post-card" });
 		if (post.cancelled) card.addClass("companion-post-card-cancelled");
 
+		if (this.settings.postsShowCover && post.coverImageUrl) {
+			const cover = card.createDiv({ cls: "companion-post-card-cover" });
+			cover.createEl("img", { attr: { src: post.coverImageUrl, alt: "" } });
+		}
+
 		const title = card.createDiv({ cls: "companion-post-card-title", text: post.title });
 		makeOpenable(this.app, title, post.file);
 
 		const meta = card.createDiv({ cls: "companion-post-card-meta" });
-		if (post.status) meta.createSpan({ cls: "companion-post-badge", text: post.status });
-		if (post.platform) meta.createSpan({ cls: "companion-post-badge", text: post.platform });
+		if (this.settings.postsShowStatus && post.status) meta.createSpan({ cls: "companion-post-badge", text: post.status });
+		if (this.settings.postsShowPlatform && post.platform) meta.createSpan({ cls: "companion-post-badge", text: post.platform });
 		if (post.cancelled) meta.createSpan({ cls: "companion-post-badge companion-post-badge-cancelled", text: "Cancelled" });
 
-		const dateLabel = post.published
-			? `Published ${formatDisplayShortDate(post.published)}`
-			: post.scheduled
-				? `Scheduled ${formatDisplayShortDate(post.scheduled)}`
-				: "No date set";
-		card.createDiv({ cls: "companion-post-card-date", text: dateLabel });
+		if (this.settings.postsShowDate) {
+			const dateLabel = post.published
+				? `Published ${formatDisplayShortDate(post.published)}`
+				: post.scheduled
+					? `Scheduled ${formatDisplayShortDate(post.scheduled)}`
+					: "No date set";
+			card.createDiv({ cls: "companion-post-card-date", text: dateLabel });
+		}
 	}
 }
 

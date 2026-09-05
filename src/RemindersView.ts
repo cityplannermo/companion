@@ -142,7 +142,7 @@ export class RemindersView extends ItemView {
 			sortOptions.map((opt) => ({ label: opt.label, isActive: this.sortKey === opt.value, onClick: () => setSort(opt.value) }))
 		);
 
-		const addBtn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
+		const addBtn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
 		setIcon(addBtn, "plus");
 		addBtn.createSpan({ text: "Reminder" });
 		addBtn.onclick = () => this.openCreate();

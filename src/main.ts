@@ -76,7 +76,7 @@ export default class CompanionPlugin extends Plugin {
 		this.registerView(VIEW_TYPE_REMINDERS, (leaf) => new RemindersView(leaf, this.settings));
 		this.registerView(VIEW_TYPE_FINANCE, (leaf) => new FinanceView(leaf, this.settings));
 		this.registerView(VIEW_TYPE_TIME, (leaf) => new TimeView(leaf, this.settings));
-		this.registerView(VIEW_TYPE_POSTS, (leaf) => new PostsView(leaf, this.settings));
+		this.registerView(VIEW_TYPE_POSTS, (leaf) => new PostsView(leaf, this.settings, () => this.saveSettings()));
 
 		// The Daily Note embeds a running-timer/today's-agenda/overdue/due-soon
 		// summary directly via a fenced ```companion-dashboard``` code block

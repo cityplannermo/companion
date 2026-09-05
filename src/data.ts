@@ -1048,11 +1048,31 @@ export interface CompanionPost {
 	published: string | null;
 	cancelled: boolean;
 	date: string | null; // the note's own creation date -- last-resort sort key when neither scheduled nor published is set yet
+	coverImageUrl: string | null; // the first embedded image in the note's body, if any -- see firstCoverImage() below
 }
 
 function firstStatusValue(value: unknown): string {
 	if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
 	return typeof value === "string" ? value : "";
+}
+
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
+
+/** The first embedded image in a note's body, as a displayable resource URL
+ * -- the Posts gallery's cover image (Mo's own reference point: a Notion
+ * gallery card's cover), read straight off the metadata cache's own
+ * `embeds` list rather than re-parsing the body text by hand, so a wikilink
+ * embed, a sized embed (`![[x.png|200]]`) and a plain markdown image all
+ * resolve the same way. Only ever reads; never writes anything back to the
+ * note, same as every other Post field. */
+function firstCoverImage(app: App, file: TFile, embeds: { link: string }[] | undefined): string | null {
+	for (const embed of embeds ?? []) {
+		const dest = app.metadataCache.getFirstLinkpathDest(embed.link, file.path);
+		if (dest && IMAGE_EXTENSIONS.has(dest.extension.toLowerCase())) {
+			return app.vault.getResourcePath(dest);
+		}
+	}
+	return null;
 }
 
 export function getPosts(app: App): CompanionPost[] {
@@ -1073,6 +1093,7 @@ export function getPosts(app: App): CompanionPost[] {
 			published: normaliseDate(frontmatter["published"]),
 			cancelled: !!frontmatter["cancelled"],
 			date: normaliseDate(frontmatter["date"]),
+			coverImageUrl: firstCoverImage(app, file, cache.embeds),
 		});
 	}
 

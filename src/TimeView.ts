@@ -204,7 +204,7 @@ export class TimeView extends ItemView {
 			{ label: "Add entry", icon: "list-plus", onClick: () => this.openManualEntry() },
 		]);
 
-		const btn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
+		const btn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
 		if (this.running) {
 			setIcon(btn, "square");
 			btn.createSpan({ text: "Stop timer" });

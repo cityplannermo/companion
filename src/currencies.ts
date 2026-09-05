@@ -200,20 +200,24 @@ const LABEL_SYMBOLS: Record<string, string> = {
 	XOF: "CFA", XAF: "FCFA", XPF: "₣",
 };
 
-/** All currencies, sorted by full name -- how every currency dropdown in
- * the plugin lists them, since "pick your currency by name" beats hunting
- * through 150-odd ISO codes alphabetically by code. */
+/** All currencies, sorted by ISO code -- how every currency dropdown in the
+ * plugin lists them. Sorted by code rather than full name (as it was before
+ * `1.33.2` shortened currencyLabel() below to just the code) since the name
+ * isn't shown any more, so a name-ordered list would no longer read as
+ * alphabetical to whoever's actually looking at it. */
 export function sortedCurrencies(): Currency[] {
-	return [...CURRENCIES].sort((a, b) => a.name.localeCompare(b.name));
+	return [...CURRENCIES].sort((a, b) => a.code.localeCompare(b.code));
 }
 
-/** A currency dropdown option's label -- "US Dollar ($) — USD", falling
- * back to just "Name — CODE" when there's no well-known symbol to show. */
+/** A currency dropdown option's label -- just "GBP (£)", or the bare code
+ * for a currency with no well-known symbol. Mo's own call, `1.33.2`: the
+ * full currency name ("Pound Sterling (£) — GBP") made this select's
+ * rendered width a big part of why the New/Edit item modal could overflow
+ * a phone screen -- three letters and a symbol is enough to pick the right
+ * one. */
 export function currencyLabel(code: string): string {
-	const currency = CURRENCIES.find((c) => c.code === code);
-	const name = currency?.name ?? code;
 	const symbol = LABEL_SYMBOLS[code];
-	return symbol ? `${name} (${symbol}) — ${code}` : `${name} — ${code}`;
+	return symbol ? `${code} (${symbol})` : code;
 }
 
 // The only three currencies an amount is ever shown with a bare symbol --

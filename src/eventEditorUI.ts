@@ -252,7 +252,10 @@ export class EventEditorModal extends Modal {
 		// currency (not just £) is on offer.
 		const costRow = contentEl.createDiv({ cls: "companion-event-editor-recur-row" });
 		costRow.createSpan({ text: "Cost: " });
-		const costInput = costRow.createEl("input", { attr: { type: "number", min: "0", step: "0.01", placeholder: "Optional" } });
+		const costInput = costRow.createEl("input", {
+			cls: "companion-event-editor-cost",
+			attr: { type: "number", min: "0", step: "0.01", placeholder: "Optional" },
+		});
 		costInput.value = this.initial.cost != null ? String(this.initial.cost) : "";
 		const currencySelect = costRow.createEl("select", { cls: "companion-event-editor-currency" });
 		for (const currency of sortedCurrencies()) {

@@ -9,6 +9,7 @@ node_modules/
 # Rules). No legitimate release asset is an image or a loose .md beyond the
 # repo's own docs, so these are blanket rules, not a list to keep updating.
 Companion.md
+Design System.md
 Mo*Notes*.md
 Attachments/
 *.png

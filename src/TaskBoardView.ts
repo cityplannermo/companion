@@ -185,7 +185,7 @@ export class TaskBoardView extends ItemView {
 			...sortOptions.map((opt) => ({ label: opt.label, isActive: this.sortKey === opt.value, onClick: () => setSort(opt.value) })),
 		]);
 
-		const addTask = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
+		const addTask = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
 		setIcon(addTask, "plus");
 		addTask.createSpan({ text: "Task" });
 		addTask.onclick = () => this.openCreate();
