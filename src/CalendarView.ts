@@ -15,6 +15,8 @@ import {
 	splitRecurringSeries,
 } from "./data";
 import type { TaskStatus } from "./data";
+import { propertyVisibilityItems } from "./cardProperties";
+import { DEFAULT_CURRENCY, formatMoney } from "./currencies";
 import { EventEditorModal } from "./eventEditorUI";
 import { recurLabel } from "./data";
 import { addDays, formatDate, parseDate, addMonths, startOfWeek, truncate } from "./dates";
@@ -304,15 +306,24 @@ export class CalendarView extends ItemView {
 		}
 		modeSelect.onchange = () => setMode(modeSelect.value as CalendarMode);
 
-		// Mobile equivalent of the mode select above -- see overflowMenu.ts.
-		addOverflowMenu(
-			nav,
-			(["month", "week", "day"] as const).map((m) => ({
+		// Mobile equivalent of the mode select above, plus "Show in agenda" --
+		// see overflowMenu.ts and cardProperties.ts.
+		addOverflowMenu(nav, [
+			...(["month", "week", "day"] as const).map((m) => ({
 				label: m.charAt(0).toUpperCase() + m.slice(1),
 				isActive: m === this.mode,
 				onClick: () => setMode(m),
-			}))
-		);
+			})),
+			...propertyVisibilityItems(
+				this.settings,
+				[
+					{ key: "calendarShowClient", label: "Show client" },
+					{ key: "calendarShowCost", label: "Show cost" },
+				],
+				this.persistSettings,
+				() => this.render()
+			),
+		]);
 
 		// Agenda (and its fold toggle) is Month-only -- see the comment in
 		// render() -- so the toggle simply isn't built for Week/Day at all,
@@ -1065,9 +1076,11 @@ export class CalendarView extends ItemView {
 		const subText = ev.status ? `${TYPE_LABELS[visualType(ev)]} · ${ev.status}` : TYPE_LABELS[visualType(ev)];
 		const repeatText = ev.virtualOf ? " · repeats" : ev.recur ? ` · ${recurLabel(ev.recur)}` : "";
 		const timeText = ev.time === "00:00" ? "" : ev.endTime ? ` · ${ev.time}–${ev.endTime}` : ` · ${ev.time}`;
+		const clientText = this.settings.calendarShowClient && ev.client ? ` · ${ev.client}` : "";
+		const costText = this.settings.calendarShowCost && ev.cost != null ? ` · ${formatMoney(ev.currency ?? DEFAULT_CURRENCY, ev.cost)}` : "";
 		txt.createDiv({
 			cls: "companion-item-sub",
-			text: `${subText}${repeatText}${timeText}`,
+			text: `${subText}${repeatText}${timeText}${clientText}${costText}`,
 		});
 
 		const edit = row.createSpan({ cls: "companion-item-rename-btn", attr: { "aria-label": "Edit" } });

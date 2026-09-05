@@ -1,5 +1,7 @@
 import { ItemView, Menu, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { propertyVisibilityItems } from "./cardProperties";
 import { applyEventEdit, CompanionReminder, createQuickNote, getReminders, snoozeReminder } from "./data";
+import { DEFAULT_CURRENCY, formatMoney } from "./currencies";
 import { EventEditorModal } from "./eventEditorUI";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
@@ -25,7 +27,8 @@ export class RemindersView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private settings: CompanionSettings
+		private settings: CompanionSettings,
+		private persistSettings: () => Promise<void> = async () => {}
 	) {
 		super(leaf);
 	}
@@ -136,11 +139,17 @@ export class RemindersView extends ItemView {
 		sortSelect.value = this.sortKey;
 		sortSelect.onchange = () => setSort(sortSelect.value as SortKey);
 
-		// Mobile equivalent of the sort dropdown above -- see overflowMenu.ts.
-		addOverflowMenu(
-			controls,
-			sortOptions.map((opt) => ({ label: opt.label, isActive: this.sortKey === opt.value, onClick: () => setSort(opt.value) }))
-		);
+		// Mobile equivalent of the sort dropdown above, plus "Show on rows" --
+		// see overflowMenu.ts and cardProperties.ts.
+		addOverflowMenu(controls, [
+			...sortOptions.map((opt) => ({ label: opt.label, isActive: this.sortKey === opt.value, onClick: () => setSort(opt.value) })),
+			...propertyVisibilityItems(
+				this.settings,
+				[{ key: "remindersShowCost", label: "Show invoice reminder cost" }],
+				this.persistSettings,
+				() => this.render()
+			),
+		]);
 
 		const addBtn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
 		setIcon(addBtn, "plus");
@@ -188,11 +197,19 @@ export class RemindersView extends ItemView {
 		const list = parent.createDiv({ cls: "companion-reminders-list" });
 		const todayStr = formatDate(new Date());
 
-		// Subscriptions (a reminder with both a repeat rule and a cost) live
-		// in the Finance tab now, not here -- see FinanceView.ts. Filtered
-		// out so a subscription doesn't show up in two places at once.
-		const isSubscription = (r: CompanionReminder) => !!r.recur && r.cost != null;
-		const visible = this.visibleReminders().filter((r) => !isSubscription(r));
+		// Subscriptions, Expenses and Income all live in the Finance tab, not
+		// here -- FinanceView.ts's own subscriptions()/expenses()/
+		// incomeReminders() each capture every cost-bearing reminder that
+		// isn't an Invoice reminder, recurring or not, so the same rule
+		// applies here: any cost-bearing reminder belongs in Finance unless
+		// it's specifically an Invoice reminder (a nudge to go generate a
+		// real invoice, which stays here even when it happens to carry a
+		// cost of its own). Filtered out so nothing shows up in both tabs at
+		// once -- a real bug until Mo caught it: a one-off Expense or Income
+		// had no recur, so the old recur-only check here let it slip through
+		// into this list too.
+		const belongsInFinance = (r: CompanionReminder) => r.cost != null && !r.invoiceReminder;
+		const visible = this.visibleReminders().filter((r) => !belongsInFinance(r));
 
 		// Matches due_reminders.py exactly: due is date <= today. Undated
 		// reminders surface in their own group rather than being hidden --
@@ -259,6 +276,16 @@ export class RemindersView extends ItemView {
 				},
 				isSelecting: () => this.selection.size > 0,
 			});
+
+			// An Invoice reminder is the only kind of item left here that can
+			// carry a cost -- Subscriptions, Expenses and Income are all
+			// filtered out above, into Finance. A plain Reminder never has one.
+			if (this.settings.remindersShowCost && reminder.cost != null) {
+				row.createDiv({
+					cls: "companion-subscription-cost",
+					text: formatMoney(reminder.currency ?? DEFAULT_CURRENCY, reminder.cost),
+				});
+			}
 
 			if (reminder.date) {
 				const snooze = row.createSpan({ cls: "companion-item-rename-btn", attr: { "aria-label": "Snooze" } });

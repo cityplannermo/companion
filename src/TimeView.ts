@@ -1,4 +1,5 @@
 import { App, ItemView, TFile, WorkspaceLeaf, setIcon, Notice } from "obsidian";
+import { propertyVisibilityItems } from "./cardProperties";
 import { TimeEntry, createManualTimeEntry, getClientRate, getTimeEntries, getRunningTimeEntry, startTimeEntry, stopTimeEntry } from "./data";
 import { addMonths, formatDate, formatElapsedMs, formatHours, formatTimeOfDay } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
@@ -48,7 +49,8 @@ export class TimeView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private settings: CompanionSettings
+		private settings: CompanionSettings,
+		private persistSettings: () => Promise<void> = async () => {}
 	) {
 		super(leaf);
 	}
@@ -202,6 +204,15 @@ export class TimeView extends ItemView {
 			{ label: "Report", isActive: this.mode === "report", onClick: () => setMode("report") },
 			{ label: "Unbilled", isActive: this.mode === "unbilled", onClick: () => setMode("unbilled") },
 			{ label: "Add entry", icon: "list-plus", onClick: () => this.openManualEntry() },
+			...propertyVisibilityItems(
+				this.settings,
+				[
+					{ key: "timeShowClient", label: "Show client" },
+					{ key: "timeShowRepeatBadge", label: "Show repeat count" },
+				],
+				this.persistSettings,
+				() => this.render()
+			),
 		]);
 
 		const btn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
@@ -467,13 +478,13 @@ export class TimeView extends ItemView {
 		const row = parent.createDiv({ cls: "companion-list-row companion-time-group-row" });
 		const chevron = row.createDiv({ cls: "companion-time-chevron" });
 		setIcon(chevron, isExpanded ? "chevron-down" : "chevron-right");
-		row.createDiv({ cls: "companion-time-group-count", text: `${group.entries.length}×` });
+		if (this.settings.timeShowRepeatBadge) row.createDiv({ cls: "companion-time-group-count", text: `${group.entries.length}×` });
 
 		const title = row.createDiv({ cls: "companion-list-row-title", text: group.description });
 		title.onclick = toggle;
 		chevron.onclick = toggle;
 
-		if (group.client) row.createDiv({ cls: "companion-time-client", text: group.client });
+		if (this.settings.timeShowClient && group.client) row.createDiv({ cls: "companion-time-client", text: group.client });
 		row.createDiv({ cls: "companion-time-duration", text: formatHours(sumDuration(group.entries)) });
 		this.renderPlayButton(row, group.description, group.client);
 
@@ -521,7 +532,7 @@ export class TimeView extends ItemView {
 			isSelecting: () => this.selection.size > 0,
 		});
 
-		if (entry.client) row.createDiv({ cls: "companion-time-client", text: entry.client });
+		if (this.settings.timeShowClient && entry.client) row.createDiv({ cls: "companion-time-client", text: entry.client });
 		row.createDiv({
 			cls: "companion-time-duration",
 			text: entry.duration !== null ? formatHours(entry.duration) : "—",

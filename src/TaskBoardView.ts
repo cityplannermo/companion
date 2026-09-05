@@ -1,4 +1,5 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
+import { propertyVisibilityItems } from "./cardProperties";
 import { CompanionTask, TASK_STATUSES, TaskStatus, TaskPriority, createQuickNote, getTasks, setTaskPriority, setTaskStatus } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
 import { formatDate } from "./dates";
@@ -29,7 +30,8 @@ export class TaskBoardView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private settings: CompanionSettings
+		private settings: CompanionSettings,
+		private persistSettings: () => Promise<void> = async () => {}
 	) {
 		super(leaf);
 	}
@@ -177,12 +179,22 @@ export class TaskBoardView extends ItemView {
 		sortSelect.value = this.sortKey;
 		sortSelect.onchange = () => setSort(sortSelect.value as SortKey);
 
-		// Mobile equivalent of the Board/List toggle and sort dropdown above --
-		// see overflowMenu.ts.
+		// Mobile equivalent of the Board/List toggle and sort dropdown above,
+		// plus "Show on cards" -- see overflowMenu.ts and cardProperties.ts.
 		addOverflowMenu(controls, [
 			{ label: "Board", isActive: this.mode === "board", onClick: () => setMode("board") },
 			{ label: "List", isActive: this.mode === "list", onClick: () => setMode("list") },
 			...sortOptions.map((opt) => ({ label: opt.label, isActive: this.sortKey === opt.value, onClick: () => setSort(opt.value) })),
+			...propertyVisibilityItems(
+				this.settings,
+				[
+					{ key: "taskShowDate", label: "Show date" },
+					{ key: "taskShowPriority", label: "Show priority" },
+					{ key: "taskShowChecklist", label: "Show checklist progress" },
+				],
+				this.persistSettings,
+				() => this.render()
+			),
 		]);
 
 		const addTask = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
@@ -318,11 +330,13 @@ export class TaskBoardView extends ItemView {
 		});
 
 		const meta = card.createDiv({ cls: "companion-card-meta" });
-		const dateEl = meta.createDiv({
-			cls: "companion-card-date",
-			text: task.date ? formatDisplayDate(task.date) : "No date",
-		});
-		if (isOverdue(task)) dateEl.addClass("companion-task-overdue");
+		if (this.settings.taskShowDate) {
+			const dateEl = meta.createDiv({
+				cls: "companion-card-date",
+				text: task.date ? formatDisplayDate(task.date) : "No date",
+			});
+			if (isOverdue(task)) dateEl.addClass("companion-task-overdue");
+		}
 		this.renderBadges(meta, task);
 
 		this.renderMoveControls(card, task, "companion-card-controls");
@@ -403,7 +417,7 @@ export class TaskBoardView extends ItemView {
 	 * -> None on click, the same lightweight "click to change" interaction
 	 * the move controls already use rather than a full edit form. */
 	private renderBadges(parent: HTMLElement, task: CompanionTask): void {
-		if (task.checklistTotal > 0) {
+		if (this.settings.taskShowChecklist && task.checklistTotal > 0) {
 			parent.createDiv({
 				cls: "companion-task-checklist",
 				text: `${task.checklistDone}/${task.checklistTotal}`,
@@ -411,14 +425,16 @@ export class TaskBoardView extends ItemView {
 			});
 		}
 
-		const priorityBtn = parent.createDiv({
-			cls: `companion-task-priority is-${task.priority ?? "none"}`,
-			attr: { "aria-label": task.priority ? `Priority: ${task.priority} — click to change` : "No priority — click to set" },
-		});
-		priorityBtn.onclick = (e) => {
-			e.stopPropagation();
-			void this.cyclePriority(task);
-		};
+		if (this.settings.taskShowPriority) {
+			const priorityBtn = parent.createDiv({
+				cls: `companion-task-priority is-${task.priority ?? "none"}`,
+				attr: { "aria-label": task.priority ? `Priority: ${task.priority} — click to change` : "No priority — click to set" },
+			});
+			priorityBtn.onclick = (e) => {
+				e.stopPropagation();
+				void this.cyclePriority(task);
+			};
+		}
 	}
 
 	private async cyclePriority(task: CompanionTask): Promise<void> {

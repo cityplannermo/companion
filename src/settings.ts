@@ -46,6 +46,26 @@ export interface CompanionSettings {
 	postsShowPlatform: boolean;
 	postsShowDate: boolean;
 
+	// Card/row property visibility for every other view, same idea as
+	// Posts' own toggles above and the same reason: a display preference,
+	// toggled from each view's own kebab menu (see cardProperties.ts),
+	// never vault content. Generalised from Posts at Mo's own request, 5
+	// September 2026 ("should be available in all views since every note
+	// has properties") -- each key here corresponds to a genuinely separate
+	// display element, not just "a toggle for its own sake": a couple of
+	// these (the agenda's client/cost line, the reminders list's cost line)
+	// didn't exist as a distinct element before this pass and were added
+	// specifically to have something real for the toggle to control.
+	calendarShowClient: boolean; // a Meeting's client name, appended to its agenda sub-text
+	calendarShowCost: boolean; // a cost-bearing Reminder/Subscription's cost, same line
+	taskShowDate: boolean;
+	taskShowPriority: boolean;
+	taskShowChecklist: boolean; // the "N/M" checklist-progress badge
+	remindersShowCost: boolean; // an Invoice reminder's own cost -- Subscriptions, Expenses and Income all live in Finance, not here
+	financeShowRowDate: boolean; // distinct from financeShowInvoiced etc. above, which hide whole sections
+	timeShowClient: boolean;
+	timeShowRepeatBadge: boolean; // the "×N" same-task repeat-count badge
+
 	// Invoicing -- Mo's own details are constant across every invoice, so
 	// they live here rather than being retyped (or copied off a previous
 	// invoice) each time. A client's own billing details live on their
@@ -86,6 +106,16 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
 	postsShowStatus: true,
 	postsShowPlatform: true,
 	postsShowDate: true,
+
+	calendarShowClient: true,
+	calendarShowCost: true,
+	taskShowDate: true,
+	taskShowPriority: true,
+	taskShowChecklist: true,
+	remindersShowCost: true,
+	financeShowRowDate: true,
+	timeShowClient: true,
+	timeShowRepeatBadge: true,
 
 	myName: "",
 	myAddress: "",

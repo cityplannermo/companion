@@ -72,10 +72,10 @@ export default class CompanionPlugin extends Plugin {
 		this.addSettingTab(new CompanionSettingTab(this.app, this));
 
 		this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this.settings, () => this.saveSettings()));
-		this.registerView(VIEW_TYPE_TASKS, (leaf) => new TaskBoardView(leaf, this.settings));
-		this.registerView(VIEW_TYPE_REMINDERS, (leaf) => new RemindersView(leaf, this.settings));
-		this.registerView(VIEW_TYPE_FINANCE, (leaf) => new FinanceView(leaf, this.settings));
-		this.registerView(VIEW_TYPE_TIME, (leaf) => new TimeView(leaf, this.settings));
+		this.registerView(VIEW_TYPE_TASKS, (leaf) => new TaskBoardView(leaf, this.settings, () => this.saveSettings()));
+		this.registerView(VIEW_TYPE_REMINDERS, (leaf) => new RemindersView(leaf, this.settings, () => this.saveSettings()));
+		this.registerView(VIEW_TYPE_FINANCE, (leaf) => new FinanceView(leaf, this.settings, () => this.saveSettings()));
+		this.registerView(VIEW_TYPE_TIME, (leaf) => new TimeView(leaf, this.settings, () => this.saveSettings()));
 		this.registerView(VIEW_TYPE_POSTS, (leaf) => new PostsView(leaf, this.settings, () => this.saveSettings()));
 
 		// The Daily Note embeds a running-timer/today's-agenda/overdue/due-soon

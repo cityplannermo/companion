@@ -1,4 +1,5 @@
 import { ItemView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import { propertyVisibilityItems } from "./cardProperties";
 import { CompanionPost, createQuickNote, getPosts } from "./data";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { EventEditorModal } from "./eventEditorUI";
@@ -136,22 +137,23 @@ export class PostsView extends ItemView {
 			...(platforms.length > 0
 				? [{ label: "All platforms", isActive: this.platformFilter === "", onClick: () => { this.platformFilter = ""; this.render(); } }, ...platformItems]
 				: []),
-			{ label: "Show cover images", isActive: this.settings.postsShowCover, onClick: () => this.toggleCardProperty("postsShowCover") },
-			{ label: "Show status", isActive: this.settings.postsShowStatus, onClick: () => this.toggleCardProperty("postsShowStatus") },
-			{ label: "Show platform", isActive: this.settings.postsShowPlatform, onClick: () => this.toggleCardProperty("postsShowPlatform") },
-			{ label: "Show date", isActive: this.settings.postsShowDate, onClick: () => this.toggleCardProperty("postsShowDate") },
+			...propertyVisibilityItems(
+				this.settings,
+				[
+					{ key: "postsShowCover", label: "Show cover images" },
+					{ key: "postsShowStatus", label: "Show status" },
+					{ key: "postsShowPlatform", label: "Show platform" },
+					{ key: "postsShowDate", label: "Show date" },
+				],
+				this.persistSettings,
+				() => this.render()
+			),
 		]);
 
 		const addBtn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text companion-create-pill" });
 		setIcon(addBtn, "plus");
 		addBtn.createSpan({ text: "Post" });
 		addBtn.onclick = () => this.openCreate();
-	}
-
-	private toggleCardProperty(key: "postsShowCover" | "postsShowStatus" | "postsShowPlatform" | "postsShowDate"): void {
-		this.settings[key] = !this.settings[key];
-		void this.persistSettings();
-		this.render();
 	}
 
 	/** Opens the same shared editor modal every other "+" uses, narrowed to

@@ -1442,11 +1442,17 @@
 	gap: 8px;
 }
 
-/* Mobile-only "⋮ more options" header button -- see overflowMenu.ts.
-   Hidden on desktop; the media query below turns it on, alongside
-   .companion-mobile-hide on whatever controls it stands in for there. */
+/* "⋮ more options" header button -- see overflowMenu.ts. Originally mobile-
+   only (a mobile-hidden control's stand-in, alongside .companion-mobile-hide
+   on that control), but visible on both platforms since 1.33.3: once a
+   view's overflow menu also holds property-visibility toggles (see
+   cardProperties.ts) that have no other, always-visible control on any
+   screen size, hiding the one way to reach them on desktop was a real gap,
+   not a deliberate choice. A little duplication on desktop (a mode toggle
+   showing both as its own control and as a menu entry) is the acceptable
+   cost of one consistent "more options" entry point everywhere. */
 .companion-overflow-btn {
-	display: none;
+	display: inline-flex;
 }
 
 /* Small screens (phone widths): the calendar's side-by-side day grid +
@@ -1538,16 +1544,14 @@
 		width: 100%;
 	}
 
-	/* The kebab itself only shows here; whatever control it stands in for
-	   (a mode toggle, a sort dropdown, a rarely-needed jump-to-date field)
-	   is hidden here via .companion-mobile-hide instead of wrapping onto a
-	   second or third header line -- see overflowMenu.ts and each view's
-	   own renderHeader() for which controls that is. Doubled selector for
+	/* Whatever the kebab stands in for here (a mode toggle, a sort dropdown,
+	   a rarely-needed jump-to-date field) is hidden on this screen size via
+	   .companion-mobile-hide, instead of wrapping onto a second or third
+	   header line -- see overflowMenu.ts and each view's own renderHeader()
+	   for which controls that is. The kebab itself is visible on every
+	   screen size (see its own base rule above) -- this block only ever
+	   needed to turn the *other* controls off. Doubled selector for
 	   specificity instead of !important, per the Rules section. */
-	.companion-overflow-btn {
-		display: inline-flex;
-	}
-
 	.companion-mobile-hide.companion-mobile-hide {
 		display: none;
 	}

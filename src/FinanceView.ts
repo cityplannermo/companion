@@ -13,11 +13,13 @@ import {
 import type { RecurKind } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
 import type { DropdownValue } from "./eventEditorUI";
+import { propertyVisibilityItems } from "./cardProperties";
 import { DEFAULT_CURRENCY, codeForInvoiceMarker, formatMoney } from "./currencies";
 import { addStatTile, toneFor } from "./statTiles";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
+import { addOverflowMenu } from "./overflowMenu";
 import { Selection } from "./selection";
 import type { CompanionSettings } from "./settings";
 
@@ -87,7 +89,8 @@ export class FinanceView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private settings: CompanionSettings
+		private settings: CompanionSettings,
+		private persistSettings: () => Promise<void> = async () => {}
 	) {
 		super(leaf);
 	}
@@ -180,6 +183,10 @@ export class FinanceView extends ItemView {
 		header.createEl("h2", { text: "Finance" });
 
 		const actions = header.createDiv({ cls: "companion-finance-header-actions" });
+		addOverflowMenu(
+			actions,
+			propertyVisibilityItems(this.settings, [{ key: "financeShowRowDate", label: "Show date" }], this.persistSettings, () => this.render())
+		);
 		const addBtn = actions.createEl("button", { cls: "companion-icon-btn companion-icon-btn-accent mod-cta", attr: { "aria-label": "New item" } });
 		setIcon(addBtn, "plus");
 		addBtn.onclick = () => this.openCreate();
@@ -474,10 +481,12 @@ export class FinanceView extends ItemView {
 						}
 					);
 
-				row.createDiv({
-					cls: "companion-list-row-date",
-					text: sub.date ? formatDisplayShortDate(sub.date) : "No date",
-				});
+				if (this.settings.financeShowRowDate) {
+					row.createDiv({
+						cls: "companion-list-row-date",
+						text: sub.date ? formatDisplayShortDate(sub.date) : "No date",
+					});
+				}
 				if (sub.date && sub.date < todayStr) row.addClass("companion-reminder-overdue");
 
 				const title = row.createDiv({ cls: "companion-list-row-title", text: sub.title });
@@ -544,10 +553,12 @@ export class FinanceView extends ItemView {
 						}
 					);
 
-				row.createDiv({
-					cls: "companion-list-row-date",
-					text: exp.date ? formatDisplayShortDate(exp.date) : "No date",
-				});
+				if (this.settings.financeShowRowDate) {
+					row.createDiv({
+						cls: "companion-list-row-date",
+						text: exp.date ? formatDisplayShortDate(exp.date) : "No date",
+					});
+				}
 				if (exp.date && exp.date < todayStr) row.addClass("companion-reminder-overdue");
 
 				const title = row.createDiv({ cls: "companion-list-row-title", text: exp.title });
@@ -609,10 +620,12 @@ export class FinanceView extends ItemView {
 						}
 					);
 
-				row.createDiv({
-					cls: "companion-list-row-date",
-					text: inc.date ? formatDisplayShortDate(inc.date) : "No date",
-				});
+				if (this.settings.financeShowRowDate) {
+					row.createDiv({
+						cls: "companion-list-row-date",
+						text: inc.date ? formatDisplayShortDate(inc.date) : "No date",
+					});
+				}
 				if (inc.date && inc.date < todayStr) row.addClass("companion-reminder-overdue");
 
 				const title = row.createDiv({ cls: "companion-list-row-title", text: inc.title });
@@ -660,10 +673,12 @@ export class FinanceView extends ItemView {
 				const row = list.createDiv({ cls: "companion-list-row" });
 				row.toggleClass("companion-invoice-row-paid", inv.paid);
 
-				row.createDiv({
-					cls: "companion-list-row-date",
-					text: inv.date ? formatDisplayShortDate(inv.date) : "No date",
-				});
+				if (this.settings.financeShowRowDate) {
+					row.createDiv({
+						cls: "companion-list-row-date",
+						text: inv.date ? formatDisplayShortDate(inv.date) : "No date",
+					});
+				}
 
 				const title = row.createDiv({ cls: "companion-list-row-title", text: inv.client });
 				makeOpenable(this.app, title, inv.file);

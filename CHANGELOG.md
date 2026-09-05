@@ -2,6 +2,11 @@
 
 All notable changes to Wiki Companion are recorded here, newest first. Earlier history (before this file existed) is in the [commit log](https://github.com/cityplannermo/companion/commits/main) and the version history in [releases](https://github.com/cityplannermo/companion/releases).
 
+## 1.33.4
+
+- **Property-visibility toggles** (added for the Posts gallery in 1.33.2) are now available everywhere: Calendar, task board, Reminders, Finance and Time each have a "⋮" menu with "Show ..." options for whatever's optional on that view's cards or rows -- date, priority, checklist progress, client, cost, and a couple of others depending on the view. The "⋮" menu itself is now always visible, not just on mobile, so these are reachable on desktop too.
+- **Fixed**: a one-off Expense or Income entry could show up in both the Reminders tab and the Finance tab at once. Only Subscriptions were being excluded from Reminders before; Expenses and Income (recurring or not) now are too, since all three belong in Finance. An Invoice reminder still shows here, with its own cost if it has one, since that's a nudge to go generate a real invoice, not a Finance line item itself.
+
 ## 1.33.2
 
 - **Fixed**: the New/Edit item popup could cut off its own left edge on a phone whenever the cost/currency row was showing. Currency dropdown options are also shorter now (just the code and symbol, e.g. "GBP (£)") instead of spelling out the full currency name.
