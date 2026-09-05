@@ -1,6 +1,17 @@
 node_modules/
 *.log
 .DS_Store
+
+# Private, vault-only working notes -- never leave the vault. Companion.md
+# is this folder's own project memory; the rest guard against Mo dropping a
+# private note or a screenshot with real client/financial detail into this
+# folder out of habit (this has happened once before -- see Companion.md's
+# Rules). No legitimate release asset is an image or a loose .md beyond the
+# repo's own docs, so these are blanket rules, not a list to keep updating.
 Companion.md
-Mo*Notes for the Next Companion Release.md
+Mo*Notes*.md
 Attachments/
+*.png
+*.jpg
+*.jpeg
+*.gif

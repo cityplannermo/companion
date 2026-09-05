@@ -1,6 +1,6 @@
 {
   "name": "companion",
-  "version": "1.33.0",
+  "version": "1.33.1",
   "description": "Calendar, task board, reminders, finance tracker, time tracker and a posts gallery for freelancers and consultants, built on plain tags and dates in your own notes.",
   "main": "main.js",
   "scripts": {

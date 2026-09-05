@@ -2,6 +2,10 @@
 
 All notable changes to Wiki Companion are recorded here, newest first. Earlier history (before this file existed) is in the [commit log](https://github.com/cityplannermo/companion/commits/main) and the version history in [releases](https://github.com/cityplannermo/companion/releases).
 
+## 1.33.1
+
+Cleared two flags from 1.33.0's automated review: an unsafe (untyped) value passed into a function expecting a string when reading an invoice's currency, and an unused import left behind in the shared item editor.
+
 ## 1.33.0
 
 - **Invoices**: the total is now written to an `amount` (and `currency`) frontmatter field when an invoice is generated, instead of being read back out of the invoice's own body text. Older invoices still work exactly as before.

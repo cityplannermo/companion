@@ -1663,7 +1663,8 @@ export async function getInvoices(app: App): Promise<CompanionInvoice[]> {
 		const parsed = parseInvoiceFilename(file.basename);
 
 		let amount: number | null = typeof frontmatter?.["amount"] === "number" ? frontmatter["amount"] : null;
-		let currencySymbol = amount != null ? invoicePrefix(frontmatter?.["currency"] ?? DEFAULT_CURRENCY) : "";
+		const currencyCode = typeof frontmatter?.["currency"] === "string" ? frontmatter["currency"] : DEFAULT_CURRENCY;
+		let currencySymbol = amount != null ? invoicePrefix(currencyCode) : "";
 
 		if (amount == null) {
 			const content = await app.vault.cachedRead(file);

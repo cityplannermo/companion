@@ -1,7 +1,7 @@
 {
 	"id": "wiki-companion",
 	"name": "Wiki Companion",
-	"version": "1.33.0",
+	"version": "1.33.1",
 	"minAppVersion": "1.7.2",
 	"description": "A calendar, task board, reminders, finance and time tracker for freelancers and consultants, built on plain tags and dates you already keep in your notes. No new format to adopt, no account, no network calls.",
 	"author": "Mo",

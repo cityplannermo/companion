@@ -5,9 +5,7 @@ import { DEFAULT_CURRENCY, currencyLabel, sortedCurrencies } from "./currencies"
 
 const PRIORITY_OPTIONS: { value: TaskPriority | ""; label: string }[] = [
 	{ value: "", label: "None" },
-	{ value: "low", label: "Low" },
-	{ value: "medium", label: "Medium" },
-	{ value: "high", label: "High" },
+	...TASK_PRIORITIES.map((p) => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) })),
 ];
 
 const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
