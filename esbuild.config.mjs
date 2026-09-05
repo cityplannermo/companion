@@ -2,8 +2,8 @@ import esbuild from "esbuild";
 import process from "process";
 
 const banner = `/*
-Companion — built for this vault, not published. Source lives alongside
-this file in System/Companion/src/.
+Wiki Companion. https://github.com/cityplannermo/companion (MIT)
+Source lives alongside this file, in src/.
 */`;
 
 const prod = process.argv[2] === "production";

@@ -14,6 +14,7 @@ import type { RecurKind } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
 import type { DropdownValue } from "./eventEditorUI";
 import { DEFAULT_CURRENCY, codeForInvoiceMarker, formatMoney } from "./currencies";
+import { addStatTile, toneFor } from "./statTiles";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
@@ -168,10 +169,10 @@ export class FinanceView extends ItemView {
 			}
 		);
 		this.renderOverviewTiles(root);
-		this.renderSubscriptions(root);
-		this.renderExpenses(root);
-		this.renderIncomeReminders(root);
-		this.renderIncome(root);
+		if (this.settings.financeShowSubscriptions) this.renderSubscriptions(root);
+		if (this.settings.financeShowExpenses) this.renderExpenses(root);
+		if (this.settings.financeShowIncome) this.renderIncomeReminders(root);
+		if (this.settings.financeShowInvoiced) this.renderIncome(root);
 	}
 
 	private renderHeader(parent: HTMLElement): void {
@@ -275,15 +276,15 @@ export class FinanceView extends ItemView {
 		const hasInvoiced = invoiceTotal.size > 0;
 		if (!hasToDate && !hasRecurring && !hasInvoiced) return;
 
-		const grid = parent.createDiv({ cls: "companion-finance-tiles" });
+		const grid = parent.createDiv({ cls: "companion-stat-tiles" });
 
 		if (hasToDate) {
 			const income = inTotals.get(DEFAULT_CURRENCY) ?? 0;
 			const expense = oneOffExpenses.get(DEFAULT_CURRENCY) ?? 0;
 			const net = income - expense;
-			addTile(grid, "Income to date", formatMoney(DEFAULT_CURRENCY, income), "positive");
-			addTile(grid, "Expenses to date", formatMoney(DEFAULT_CURRENCY, expense), "negative");
-			addTile(grid, "Net to date", formatMoney(DEFAULT_CURRENCY, net), toneFor(net));
+			addStatTile(grid, "Income to date", formatMoney(DEFAULT_CURRENCY, income), "positive");
+			addStatTile(grid, "Expenses to date", formatMoney(DEFAULT_CURRENCY, expense), "negative");
+			addStatTile(grid, "Net to date", formatMoney(DEFAULT_CURRENCY, net), toneFor(net));
 		}
 
 		if (hasRecurring) {
@@ -291,16 +292,16 @@ export class FinanceView extends ItemView {
 			if (currencies.size <= 1) {
 				const code = [...currencies][0] ?? DEFAULT_CURRENCY;
 				const net = (recurIn.get(code) ?? 0) - (recurOut.get(code) ?? 0);
-				addTile(grid, "Recurring, net/month", `${formatMoney(code, Math.abs(net))} ${net >= 0 ? "in" : "out"}`, toneFor(net));
+				addStatTile(grid, "Recurring, net/month", `${formatMoney(code, Math.abs(net))} ${net >= 0 ? "in" : "out"}`, toneFor(net));
 			} else {
-				addTile(grid, "Recurring in/month", this.formatBucketed(recurIn) || formatMoney(DEFAULT_CURRENCY, 0), "positive");
-				addTile(grid, "Recurring out/month", this.formatBucketed(recurOut) || formatMoney(DEFAULT_CURRENCY, 0), "negative");
+				addStatTile(grid, "Recurring in/month", this.formatBucketed(recurIn) || formatMoney(DEFAULT_CURRENCY, 0), "positive");
+				addStatTile(grid, "Recurring out/month", this.formatBucketed(recurOut) || formatMoney(DEFAULT_CURRENCY, 0), "negative");
 			}
 		}
 
 		if (hasInvoiced) {
-			addTile(grid, "Invoiced total", formatMoney(DEFAULT_CURRENCY, invoiceTotal.get(DEFAULT_CURRENCY) ?? 0));
-			addTile(grid, "Paid so far", formatMoney(DEFAULT_CURRENCY, paidInvoices.get(DEFAULT_CURRENCY) ?? 0), "positive");
+			addStatTile(grid, "Invoiced total", formatMoney(DEFAULT_CURRENCY, invoiceTotal.get(DEFAULT_CURRENCY) ?? 0));
+			addStatTile(grid, "Paid so far", formatMoney(DEFAULT_CURRENCY, paidInvoices.get(DEFAULT_CURRENCY) ?? 0), "positive");
 		}
 
 		const otherLines: string[] = [];
@@ -715,7 +716,9 @@ export class FinanceView extends ItemView {
 					result.invoiceReminder,
 					result.remind,
 					result.income,
-					result.currency
+					result.currency,
+					result.status ?? undefined,
+					result.priority
 				).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)
@@ -809,23 +812,6 @@ const INVOICE_COMPARATORS: Record<SortKey, (a: CompanionInvoice, b: CompanionInv
 	"title-asc": (a, b) => a.client.localeCompare(b.client),
 	"title-desc": (a, b) => b.client.localeCompare(a.client),
 };
-
-/** A stat tile's value colours green/red only when its sign is
- * meaningful (a net figure) -- never used for a plain total, where colour
- * would just be noise. */
-function toneFor(net: number): "positive" | "negative" | "neutral" {
-	if (net > 0) return "positive";
-	if (net < 0) return "negative";
-	return "neutral";
-}
-
-function addTile(grid: HTMLElement, label: string, value: string, tone: "positive" | "negative" | "neutral" = "neutral"): void {
-	const tile = grid.createDiv({ cls: "companion-finance-tile" });
-	tile.createDiv({ cls: "companion-finance-tile-label", text: label });
-	const valueEl = tile.createDiv({ cls: "companion-finance-tile-value", text: value });
-	if (tone === "positive") valueEl.addClass("companion-finance-tile-positive");
-	if (tone === "negative") valueEl.addClass("companion-finance-tile-negative");
-}
 
 function withoutCode(totals: Map<string, number>, code: string): Map<string, number> {
 	const copy = new Map(totals);

@@ -1,8 +1,10 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import { CompanionTask, TASK_STATUSES, TaskStatus, TaskPriority, createQuickNote, getTasks, setTaskPriority, setTaskStatus } from "./data";
+import { EventEditorModal } from "./eventEditorUI";
 import { formatDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
+import { addOverflowMenu } from "./overflowMenu";
 import { Selection } from "./selection";
 import type { CompanionSettings } from "./settings";
 
@@ -22,7 +24,6 @@ export class TaskBoardView extends ItemView {
 	private mode: Mode = "board";
 	private sortKey: SortKey = "date-asc";
 	private collapsed: Set<TaskStatus> = new Set();
-	private creatingTask = false;
 	private selection = new Selection();
 	private filterText = "";
 
@@ -77,6 +78,35 @@ export class TaskBoardView extends ItemView {
 		this.refresh();
 	}
 
+	/** Bulk status/priority for the right-click menu -- see showDeleteMenu's
+	 * own `bulkTaskActions` param in deleteUI.ts. Only ever exercised when
+	 * 2+ tasks are selected (deleteUI.ts's own gate), so `this.selection`
+	 * here is exactly the set the menu was opened against. */
+	private bulkTaskActions(): { onSetStatus: (status: TaskStatus) => void; onSetPriority: (priority: TaskPriority | null) => void } {
+		return {
+			onSetStatus: (status) => {
+				const files = this.selectedFiles();
+				Promise.all(files.map((f) => setTaskStatus(this.app, f, status))).then(
+					() => {
+						this.selection.clear();
+						this.refresh();
+					},
+					(err: Error) => new Notice(err.message)
+				);
+			},
+			onSetPriority: (priority) => {
+				const files = this.selectedFiles();
+				Promise.all(files.map((f) => setTaskPriority(this.app, f, priority))).then(
+					() => {
+						this.selection.clear();
+						this.refresh();
+					},
+					(err: Error) => new Notice(err.message)
+				);
+			},
+		};
+	}
+
 	private render(): void {
 		const root = this.contentEl;
 		root.empty();
@@ -119,85 +149,83 @@ export class TaskBoardView extends ItemView {
 			restored?.setSelectionRange(this.filterText.length, this.filterText.length);
 		};
 
-		const toggle = controls.createDiv({ cls: "companion-mode-toggle" });
+		const toggle = controls.createDiv({ cls: "companion-mode-toggle companion-mobile-hide" });
 		const boardBtn = toggle.createEl("button", { text: "Board" });
 		const listBtn = toggle.createEl("button", { text: "List" });
 		boardBtn.toggleClass("is-active", this.mode === "board");
 		listBtn.toggleClass("is-active", this.mode === "list");
-		boardBtn.onclick = () => {
-			this.mode = "board";
+		const setMode = (mode: Mode) => {
+			this.mode = mode;
 			this.render();
 		};
-		listBtn.onclick = () => {
-			this.mode = "list";
+		boardBtn.onclick = () => setMode("board");
+		listBtn.onclick = () => setMode("list");
+
+		const sortOptions: { value: SortKey; label: string }[] = [
+			{ value: "date-asc", label: "Sort: Due date (soonest first)" },
+			{ value: "date-desc", label: "Sort: Due date (latest first)" },
+			{ value: "title-asc", label: "Sort: Title (A–Z)" },
+			{ value: "title-desc", label: "Sort: Title (Z–A)" },
+		];
+		const setSort = (key: SortKey) => {
+			this.sortKey = key;
 			this.render();
 		};
 
-		const sortSelect = controls.createEl("select", { cls: "companion-sort-select" });
-		sortSelect.createEl("option", { text: "Sort: Due date (soonest first)", attr: { value: "date-asc" } });
-		sortSelect.createEl("option", { text: "Sort: Due date (latest first)", attr: { value: "date-desc" } });
-		sortSelect.createEl("option", { text: "Sort: Title (A–Z)", attr: { value: "title-asc" } });
-		sortSelect.createEl("option", { text: "Sort: Title (Z–A)", attr: { value: "title-desc" } });
+		const sortSelect = controls.createEl("select", { cls: "companion-sort-select companion-mobile-hide" });
+		for (const opt of sortOptions) sortSelect.createEl("option", { text: opt.label, value: opt.value });
 		sortSelect.value = this.sortKey;
-		sortSelect.onchange = () => {
-			this.sortKey = sortSelect.value as SortKey;
-			this.render();
-		};
+		sortSelect.onchange = () => setSort(sortSelect.value as SortKey);
+
+		// Mobile equivalent of the Board/List toggle and sort dropdown above --
+		// see overflowMenu.ts.
+		addOverflowMenu(controls, [
+			{ label: "Board", isActive: this.mode === "board", onClick: () => setMode("board") },
+			{ label: "List", isActive: this.mode === "list", onClick: () => setMode("list") },
+			...sortOptions.map((opt) => ({ label: opt.label, isActive: this.sortKey === opt.value, onClick: () => setSort(opt.value) })),
+		]);
 
 		const addTask = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
 		setIcon(addTask, "plus");
 		addTask.createSpan({ text: "Task" });
-		addTask.onclick = () => {
-			this.creatingTask = true;
-			this.render();
-		};
-
-		if (this.creatingTask) {
-			this.renderQuickCreateForm(parent);
-		}
+		addTask.onclick = () => this.openCreate();
 	}
 
-	/** Inline "new task" form — created dated to today, same as calendar quick-create. */
-	private renderQuickCreateForm(parent: HTMLElement): void {
-		const form = parent.createDiv({ cls: "companion-quick-create" });
-		const input = form.createEl("input", { attr: { type: "text", placeholder: "New task title…" } });
-
-		let submitted = false;
-		const submit = () => {
-			if (submitted) return; // guards against Enter and the Create button both firing
-			submitted = true;
-			const title = input.value;
-			this.creatingTask = false;
-			createQuickNote(this.app, "task", formatDate(new Date()), title).then(
-				() => {
-					this.refresh();
-				},
-				(err: Error) => {
-					new Notice(err.message);
-					this.render();
-				}
-			);
-		};
-		input.onkeydown = (e) => {
-			if (e.key === "Enter") submit();
-			if (e.key === "Escape") {
-				this.creatingTask = false;
-				this.render();
-			}
-		};
-		const controls = form.createDiv({ cls: "companion-quick-create-controls" });
-		const confirm = controls.createEl("button", { text: "Create", cls: "mod-cta" });
-		confirm.onclick = submit;
-		const cancel = controls.createEl("button", {
-			cls: "companion-icon-btn",
-			attr: { "aria-label": "Cancel" },
-		});
-		setIcon(cancel, "x");
-		cancel.onclick = () => {
-			this.creatingTask = false;
-			this.render();
-		};
-		window.setTimeout(() => input.focus());
+	/** Opens the shared editor modal locked to Task -- no type dropdown
+	 * (everything created from the board's own "+" is a Task by definition)
+	 * but with Status and Priority available alongside date/repeat/remind,
+	 * so a task can be fully set up in one place instead of created "To Do"/
+	 * no-priority and fixed up on the board afterwards. Replaces the old
+	 * bare-title inline form. */
+	private openCreate(): void {
+		new EventEditorModal(
+			this.app,
+			"create",
+			{ title: "", type: "task", date: formatDate(new Date()), timeStr: "00:00" },
+			(result) => {
+				createQuickNote(
+					this.app,
+					"task",
+					result.date,
+					result.title,
+					result.allDay ? "00:00" : result.startTime,
+					result.allDay ? undefined : result.endTime,
+					undefined,
+					result.recur,
+					undefined,
+					undefined,
+					result.remind,
+					undefined,
+					undefined,
+					result.status ?? undefined,
+					result.priority
+				).then(
+					() => this.refresh(),
+					(err: Error) => new Notice(err.message)
+				);
+			},
+			"Task"
+		).open();
 	}
 
 	private renderBoard(parent: HTMLElement): void {
@@ -267,7 +295,8 @@ export class TaskBoardView extends ItemView {
 					this.selection.clear();
 					this.render();
 				},
-				task.recur
+				task.recur,
+				this.bulkTaskActions()
 			);
 
 		// Desktop drag-and-drop between columns; the ‹ › controls below cover
@@ -345,7 +374,8 @@ export class TaskBoardView extends ItemView {
 							this.selection.clear();
 							this.render();
 						},
-						task.recur
+						task.recur,
+						this.bulkTaskActions()
 					);
 				const dateEl = row.createDiv({
 					cls: "companion-list-row-date",

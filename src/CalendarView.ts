@@ -14,11 +14,13 @@ import {
 	skipRecurringOccurrence,
 	splitRecurringSeries,
 } from "./data";
+import type { TaskStatus } from "./data";
 import { EventEditorModal } from "./eventEditorUI";
 import { recurLabel } from "./data";
 import { addDays, formatDate, parseDate, addMonths, startOfWeek, truncate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable, openNote } from "./openHandlers";
+import { addOverflowMenu } from "./overflowMenu";
 import { Selection } from "./selection";
 import type { CompanionSettings } from "./settings";
 
@@ -272,8 +274,14 @@ export class CalendarView extends ItemView {
 
 		// A native date input rather than a custom picker -- Chromium's own
 		// calendar popup, no extra UI to build or maintain, and it already
-		// matches the OS/locale date format.
-		const jumpInput = nav.createEl("input", { cls: "companion-jump-date", attr: { type: "date", "aria-label": "Jump to date" } });
+		// matches the OS/locale date format. Hidden on mobile with no menu
+		// equivalent -- Today plus prev/next already cover most of what this
+		// is for, and it was one of the controls crowding a phone header onto
+		// a second line (Mo's own mobile feedback, 3 September 2026).
+		const jumpInput = nav.createEl("input", {
+			cls: "companion-jump-date companion-mobile-hide",
+			attr: { type: "date", "aria-label": "Jump to date" },
+		});
 		jumpInput.value = formatDate(this.cursor);
 		jumpInput.onchange = () => {
 			if (!jumpInput.value) return;
@@ -283,16 +291,28 @@ export class CalendarView extends ItemView {
 			this.render();
 		};
 
-		const modeSelect = nav.createEl("select", { cls: "companion-mode-select" });
+		const setMode = (mode: CalendarMode) => {
+			this.mode = mode;
+			this.cursor = parseDate(this.selected);
+			this.render();
+		};
+
+		const modeSelect = nav.createEl("select", { cls: "companion-mode-select companion-mobile-hide" });
 		for (const m of ["month", "week", "day"] as const) {
 			const opt = modeSelect.createEl("option", { text: m.charAt(0).toUpperCase() + m.slice(1), value: m });
 			if (m === this.mode) opt.selected = true;
 		}
-		modeSelect.onchange = () => {
-			this.mode = modeSelect.value as CalendarMode;
-			this.cursor = parseDate(this.selected);
-			this.render();
-		};
+		modeSelect.onchange = () => setMode(modeSelect.value as CalendarMode);
+
+		// Mobile equivalent of the mode select above -- see overflowMenu.ts.
+		addOverflowMenu(
+			nav,
+			(["month", "week", "day"] as const).map((m) => ({
+				label: m.charAt(0).toUpperCase() + m.slice(1),
+				isActive: m === this.mode,
+				onClick: () => setMode(m),
+			}))
+		);
 
 		// Agenda (and its fold toggle) is Month-only -- see the comment in
 		// render() -- so the toggle simply isn't built for Week/Day at all,
@@ -759,7 +779,9 @@ export class CalendarView extends ItemView {
 				result.invoiceReminder,
 				result.remind,
 				result.income,
-				result.currency
+				result.currency,
+				result.status ?? undefined,
+				result.priority
 			).then(
 				() => this.refresh(),
 				(err: Error) => new Notice(err.message)
@@ -789,6 +811,8 @@ export class CalendarView extends ItemView {
 				currency: ev.currency,
 				invoiceReminder: ev.invoiceReminder,
 				income: ev.income,
+				status: ev.type === "task" ? (ev.status as TaskStatus | undefined) : undefined,
+				priority: ev.priority,
 			},
 			(result) => {
 				applyEventEdit(this.app, ev.file, ev.type, {
@@ -804,6 +828,8 @@ export class CalendarView extends ItemView {
 					currency: result.currency,
 					invoiceReminder: result.invoiceReminder,
 					income: result.income,
+					status: result.status ?? undefined,
+					priority: result.priority,
 				}).then(
 					() => this.refresh(),
 					(err: Error) => new Notice(err.message)

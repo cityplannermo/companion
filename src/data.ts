@@ -1,6 +1,6 @@
 import { App, TAbstractFile, TFile } from "obsidian";
 import { formatDMY, formatDate, toMinuteIso } from "./dates";
-import { DEFAULT_CURRENCY } from "./currencies";
+import { DEFAULT_CURRENCY, invoicePrefix } from "./currencies";
 
 // Companion's data layer: reads what's already in the vault via Obsidian's
 // own metadata cache, and — for the task board only — writes a single
@@ -39,6 +39,7 @@ export interface CompanionEvent {
 	time: string; // HH:MM, "00:00" when no specific time was set
 	endTime?: string; // HH:MM, only set when the note has its own `end` field -- a real duration, not just a point in time
 	status?: string;
+	priority?: TaskPriority; // set only when type === "task" -- lets the shared editor modal show/edit it without a separate lookup
 	client?: string; // unwrapped from the [[wikilink]] -- set only on a Meeting, powers the calendar's edit modal
 	recur?: RecurKind; // set when this note is itself a recurring series' anchor
 	remind?: RemindLead; // set when this note wants an advance-notice desktop notification ahead of its own date
@@ -224,6 +225,7 @@ export function buildIndex(app: App): Map<string, CompanionEvent[]> {
 			time: timeOfDay(frontmatter["date"]),
 			endTime: frontmatter["end"] != null ? timeOfDay(frontmatter["end"]) : undefined,
 			status: typeof frontmatter["status"] === "string" ? frontmatter["status"] : undefined,
+			priority: type === "task" ? (toTaskPriority(frontmatter["priority"]) ?? undefined) : undefined,
 			client: type === "meeting" ? (unwrapWikilink(frontmatter["client"]) ?? undefined) : undefined,
 			recur: parseRecur(frontmatter["recur"]) ?? undefined,
 			remind: parseRemindLead(frontmatter["remind"]) ?? undefined,
@@ -450,13 +452,16 @@ function quickCreateFrontmatter(
 	invoiceReminder?: boolean,
 	remind?: RemindLead | null,
 	income?: boolean,
-	currency?: string
+	currency?: string,
+	status?: TaskStatus,
+	priority?: TaskPriority | null
 ): string {
 	const endLine = endTimeStr ? `end: ${dateStr}T${endTimeStr}\n` : "";
 	const recurLine = recur ? `recur: ${recur}\n` : "";
 	const remindLine = remind ? `remind: ${remind}\n` : "";
 	if (type === "task") {
-		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}tags:\n  - task\nstatus: To Do\n---\n\n`;
+		const priorityLine = priority ? `priority: ${priority}\n` : "";
+		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}tags:\n  - task\nstatus: ${status ?? "To Do"}\n${priorityLine}---\n\n`;
 	}
 	if (type === "event") {
 		return `---\ndate: ${dateStr}T${timeStr}\n${endLine}${recurLine}${remindLine}tags:\n  - event\n---\n\n`;
@@ -545,7 +550,9 @@ export async function createQuickNote(
 	invoiceReminder?: boolean,
 	remind?: RemindLead | null,
 	income?: boolean,
-	currency?: string
+	currency?: string,
+	status?: TaskStatus,
+	priority?: TaskPriority | null
 ): Promise<TFile> {
 	if (type === "post") return createPostIdea(app, title, dateStr);
 
@@ -558,7 +565,7 @@ export async function createQuickNote(
 	}
 	return app.vault.create(
 		path,
-		quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder, remind, income, currency)
+		quickCreateFrontmatter(type, dateStr, timeStr, endTimeStr, client, recur, cost, invoiceReminder, remind, income, currency, status, priority)
 	);
 }
 
@@ -590,6 +597,8 @@ export interface EventEditFields {
 	currency?: string | null; // meaningful only when type === "reminder"; null/undefined clears it
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"; falsy clears it
 	income?: boolean; // meaningful only when type === "reminder"; falsy clears it
+	status?: TaskStatus; // meaningful only when type === "task"; undefined leaves any existing status untouched (a caller with no status field, e.g. a virtual occurrence, shouldn't reset it)
+	priority?: TaskPriority | null; // meaningful only when type === "task"; null clears it
 }
 
 /**
@@ -673,6 +682,9 @@ export async function applyEventEdit(app: App, file: TFile, oldType: CompanionEv
 		else delete fm["invoiceReminder"];
 		if (fields.type === "reminder" && fields.income) fm["income"] = true;
 		else delete fm["income"];
+		if (fields.type === "task" && fields.status) fm["status"] = fields.status;
+		if (fields.type === "task" && fields.priority) fm["priority"] = fields.priority;
+		else if (fields.type === "task") delete fm["priority"];
 
 		// Keep the `subscription`/`income` tags in sync with what actually
 		// makes a Reminder one -- added or dropped automatically, the same
@@ -1019,6 +1031,54 @@ export function getReminders(app: App): CompanionReminder[] {
 	return reminders;
 }
 
+// Every note tagged `post`, for the Posts gallery tab -- a read-only list
+// (see CompanionEventType's own comment: Companion only ever creates a Post,
+// never edits or deletes one) plus the "+ New post" action that reuses
+// createPostIdea() via createQuickNote(), same as every other "+ New item"
+// entry point already does. `status` is read defensively as either a plain
+// string or a YAML list (createPostIdea itself writes it as a one-item list,
+// `status:\n  - Idea`, matching whatever shape the content-drafting workflow
+// expects) -- the first value either way, or "" if neither shape is present.
+export interface CompanionPost {
+	file: TFile;
+	title: string;
+	status: string;
+	platform: string;
+	scheduled: string | null;
+	published: string | null;
+	cancelled: boolean;
+	date: string | null; // the note's own creation date -- last-resort sort key when neither scheduled nor published is set yet
+}
+
+function firstStatusValue(value: unknown): string {
+	if (Array.isArray(value)) return typeof value[0] === "string" ? value[0] : "";
+	return typeof value === "string" ? value : "";
+}
+
+export function getPosts(app: App): CompanionPost[] {
+	const posts: CompanionPost[] = [];
+
+	for (const file of app.vault.getMarkdownFiles()) {
+		const cache = app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) continue;
+		if (!getTags(frontmatter).includes("post")) continue;
+
+		posts.push({
+			file,
+			title: postTitle(file.basename),
+			status: firstStatusValue(frontmatter["status"]),
+			platform: typeof frontmatter["platform"] === "string" ? frontmatter["platform"] : "",
+			scheduled: normaliseDate(frontmatter["scheduled"]),
+			published: normaliseDate(frontmatter["published"]),
+			cancelled: !!frontmatter["cancelled"],
+			date: normaliseDate(frontmatter["date"]),
+		});
+	}
+
+	return posts;
+}
+
 /** How many of `kind` fit in a month, on average -- the constant behind
  * turning any subscription's cost into a monthly-equivalent figure for the
  * Reminders view's running total. Deliberately approximate (365.25/12 days
@@ -1125,7 +1185,7 @@ export async function deleteCompanionFile(app: App, file: TFile): Promise<void> 
 export interface TimeEntry {
 	file: TFile;
 	description: string;
-	client: string | null; // unwrapped from the [[wikilink]] stored in frontmatter, e.g. "Archos Property"
+	client: string | null; // unwrapped from the [[wikilink]] stored in frontmatter, e.g. "Acme Co"
 	date: string | null;
 	start: string | null; // ISO datetime
 	end: string | null; // null while the timer is still running
@@ -1171,7 +1231,7 @@ export function getTimeEntries(app: App): TimeEntry[] {
 
 /** Every client *hub* note -- backs the Start Timer modal's client
  * autocomplete. The `client` tag lives only on a client's own hub note
- * (e.g. Archos Property); notes belonging to that client's project keep
+ * (e.g. Acme Co); notes belonging to that client's project keep
  * a `client:` frontmatter field linking back to the hub but no longer
  * carry the tag themselves, so a plain tag match is enough. */
 export function getClientNames(app: App): string[] {
@@ -1527,7 +1587,7 @@ interface ParsedInvoiceFilename {
 	dateStr: string; // YYYY-MM-DD
 }
 
-// Matches "013 - Archos Property - 25-08-2026" (basename, no extension) --
+// Matches "013 - Acme Co - 25-08-2026" (basename, no extension) --
 // [[Invoice Create Procedure]]'s own filename convention.
 const INVOICE_FILENAME_RE = /^(\d{3}) - (.+) - (\d{2})-(\d{2})-(\d{4})$/;
 
@@ -1585,11 +1645,14 @@ const TOTAL_DUE_RE = /\*\*Total Due:\*\*\s*(\S*?)\s*([\d,]+\.\d{2})/;
 
 /** Every invoice ever generated, newest first -- backs the Finance tab's
  * Income section. Client and date come from frontmatter (falling back to
- * the filename, which encodes both -- see parseInvoiceFilename); the
- * total only ever exists as body text (see generateInvoice's `**Total
- * Due:**` line), never a frontmatter field, so this is the one Companion
- * data function that needs an async content read per file rather than
- * just the metadata cache. */
+ * the filename, which encodes both -- see parseInvoiceFilename). The total
+ * itself lives in a frontmatter `amount:` field (added alongside `currency:`
+ * once Mo pointed out that parsing it back out of the body's "Total Due"
+ * line was fragile) -- read straight from the metadata cache for any
+ * invoice that has it. Invoices generated before this change have no
+ * `amount:` field, so those still fall back to the old body-text parse,
+ * which is why this stays an async per-file read rather than a pure
+ * metadata-cache function. */
 export async function getInvoices(app: App): Promise<CompanionInvoice[]> {
 	const invoices: CompanionInvoice[] = [];
 
@@ -1599,16 +1662,23 @@ export async function getInvoices(app: App): Promise<CompanionInvoice[]> {
 		const frontmatter = cache?.frontmatter;
 		const parsed = parseInvoiceFilename(file.basename);
 
-		const content = await app.vault.cachedRead(file);
-		const match = content.match(TOTAL_DUE_RE);
+		let amount: number | null = typeof frontmatter?.["amount"] === "number" ? frontmatter["amount"] : null;
+		let currencySymbol = amount != null ? invoicePrefix(frontmatter?.["currency"] ?? DEFAULT_CURRENCY) : "";
+
+		if (amount == null) {
+			const content = await app.vault.cachedRead(file);
+			const match = content.match(TOTAL_DUE_RE);
+			amount = match ? parseFloat(match[2].replace(/,/g, "")) : null;
+			currencySymbol = match ? match[1] : "";
+		}
 
 		invoices.push({
 			file,
 			number: parsed?.number ?? 0,
 			client: unwrapWikilink(frontmatter?.["client"]) ?? parsed?.client ?? file.basename,
 			date: normaliseDate(frontmatter?.["date"]) ?? parsed?.dateStr ?? null,
-			amount: match ? parseFloat(match[2].replace(/,/g, "")) : null,
-			currencySymbol: match ? match[1] : "",
+			amount,
+			currencySymbol,
 			paid: frontmatter?.["paid"] === true,
 		});
 	}
@@ -1675,7 +1745,8 @@ export interface GenerateInvoiceParams {
 	billing: ClientBillingInfo;
 	myDetails: InvoiceHeaderInfo;
 	payment: InvoicePaymentInfo;
-	currencySymbol: string; // bare symbol ("£"/"€"/"¥") or "CODE " prefix -- chosen per invoice, not stored on rate/amount fields anywhere
+	currencySymbol: string; // bare symbol ("£"/"€"/"¥") or "CODE " prefix -- written into the body's rate/total columns
+	currencyCode: string; // ISO 4217 code -- written to frontmatter `currency:` (omitted when it's DEFAULT_CURRENCY, same convention as a Reminder's)
 }
 
 /**
@@ -1746,9 +1817,11 @@ export async function generateInvoice(app: App, params: GenerateInvoiceParams): 
 	const path = `${INVOICE_FOLDER}/${filename}.md`;
 	if (app.vault.getAbstractFileByPath(path)) throw new Error(`A note already exists at "${path}".`);
 
+	const currencyLine = params.currencyCode !== DEFAULT_CURRENCY ? `currency: ${params.currencyCode}\n` : "";
+
 	const file = await app.vault.create(
 		path,
-		`---\ndate: ${issueDateStr}T00:00\ntags:\n  - invoice\nclient: "[[${params.client}]]"\nstatus:\n  - Pending\n---\n\n${body}`
+		`---\ndate: ${issueDateStr}T00:00\ntags:\n  - invoice\nclient: "[[${params.client}]]"\nstatus:\n  - Pending\namount: ${totalDue}\n${currencyLine}---\n\n${body}`
 	);
 
 	await createQuickNote(app, "reminder", formatDate(due), `Chase Payment - Invoice ${numberStr} - ${params.client}`);

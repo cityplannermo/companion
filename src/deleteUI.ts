@@ -1,5 +1,5 @@
 import { App, Menu, Modal, Notice, TFile } from "obsidian";
-import { advanceRecurringOccurrence, deleteCompanionFile, RecurKind } from "./data";
+import { advanceRecurringOccurrence, deleteCompanionFile, RecurKind, TASK_PRIORITIES, TASK_STATUSES, TaskPriority, TaskStatus } from "./data";
 
 function doDelete(app: App, files: TFile[], onDone: () => void): void {
 	Promise.all(files.map((f) => deleteCompanionFile(app, f))).then(
@@ -79,6 +79,9 @@ export function confirmAndDelete(app: App, files: TFile[], confirmFirst: boolean
  * to wherever the list currently is, which defeats the point on a long
  * list on a phone. This menu is already open wherever the finger already
  * is, so it's the more convenient place to end a selection too.
+ *
+ * A multi-selection stays delete-only everywhere except the Task board,
+ * which additionally passes `bulkTaskActions` -- see its own comment below.
  */
 export function showDeleteMenu(
 	app: App,
@@ -96,7 +99,17 @@ export function showDeleteMenu(
 	// ending the whole series. See advanceRecurringOccurrence in data.ts
 	// for why that's a date-advance rather than a real delete. Only shown
 	// against a single item; a multi-selection stays delete-only.
-	recur?: RecurKind
+	recur?: RecurKind,
+	// Set only by the Task board -- adds "Move to <status>"/"Priority: …"
+	// items once 2+ tasks are selected, so a batch of tasks can be re-
+	// columned or re-prioritised in one action instead of one at a time
+	// (Mo's own request: "a way to move all the items I selected"). Left
+	// undefined by every other view's call site, since bulk status/priority
+	// only means anything for a Task.
+	bulkTaskActions?: {
+		onSetStatus: (status: TaskStatus) => void;
+		onSetPriority: (priority: TaskPriority | null) => void;
+	}
 ): void {
 	event.preventDefault();
 	const inSelection = selectedFiles.some((f) => f.path === file.path);
@@ -129,6 +142,33 @@ export function showDeleteMenu(
 				})
 		);
 	}
+	if (bulkTaskActions && targets.length > 1) {
+		menu.addSeparator();
+		for (const status of TASK_STATUSES) {
+			menu.addItem((item) =>
+				item
+					.setTitle(`Move ${targets.length} to ${status}`)
+					.setIcon("arrow-right-circle")
+					.onClick(() => bulkTaskActions.onSetStatus(status))
+			);
+		}
+		menu.addSeparator();
+		menu.addItem((item) =>
+			item
+				.setTitle(`Clear priority on ${targets.length}`)
+				.setIcon("flag")
+				.onClick(() => bulkTaskActions.onSetPriority(null))
+		);
+		for (const priority of TASK_PRIORITIES) {
+			menu.addItem((item) =>
+				item
+					.setTitle(`Set ${priority} priority on ${targets.length}`)
+					.setIcon("flag")
+					.onClick(() => bulkTaskActions.onSetPriority(priority))
+			);
+		}
+	}
+	menu.addSeparator();
 	menu.addItem((item) =>
 		item
 			.setTitle(targets.length === 1 ? "Delete" : `Delete ${targets.length} selected`)

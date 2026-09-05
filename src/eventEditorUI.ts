@@ -1,7 +1,14 @@
 import { App, Modal } from "obsidian";
-import { getClientNames, recurLabel, remindLeadLabel } from "./data";
-import type { CompanionEventType, QuickCreateType, RecurKind, RemindLead } from "./data";
+import { getClientNames, recurLabel, remindLeadLabel, TASK_STATUSES, TASK_PRIORITIES } from "./data";
+import type { CompanionEventType, QuickCreateType, RecurKind, RemindLead, TaskStatus, TaskPriority } from "./data";
 import { DEFAULT_CURRENCY, currencyLabel, sortedCurrencies } from "./currencies";
+
+const PRIORITY_OPTIONS: { value: TaskPriority | ""; label: string }[] = [
+	{ value: "", label: "None" },
+	{ value: "low", label: "Low" },
+	{ value: "medium", label: "Medium" },
+	{ value: "high", label: "High" },
+];
 
 const RECUR_OPTIONS: { value: RecurKind | ""; label: string }[] = [
 	{ value: "", label: "Never" },
@@ -52,7 +59,8 @@ function resolveType(value: DropdownValue): QuickCreateType {
 /** The dropdown option that best represents an existing item's current
  * shape, for pre-selecting it when editing (or defaulting a new one). */
 function dropdownValueFor(type: CompanionEventType, recur?: RecurKind, cost?: number, invoiceReminder?: boolean, income?: boolean): DropdownValue {
-	if (type === "invoice" || type === "post") return "reminder"; // unreachable in practice -- this modal is never opened for an Invoice (see isInvoice above) or a Post (see CompanionEventType's comment)
+	if (type === "invoice") return "reminder"; // unreachable in practice -- this modal is never opened for an Invoice (see isInvoice above)
+	if (type === "post") return "post"; // the Posts tab's own "+ New post" opens this modal with initial.type "post" and allowedTypes ["post"]; every other caller still defaults initial.type to "reminder" and lets the dropdown's own Post option (create mode only) be picked instead
 	if (type !== "reminder") return type;
 	if (invoiceReminder) return "invoiceReminder";
 	if (income) return "income";
@@ -78,6 +86,8 @@ export interface EventEditorResult {
 	currency: string; // ISO 4217 -- only meaningful alongside cost; always resolved, defaulting to DEFAULT_CURRENCY
 	invoiceReminder: boolean; // only meaningful when type === "reminder" -- see DropdownValue above
 	income: boolean; // only meaningful when type === "reminder" -- flips the direction from an outgoing cost to incoming money
+	status: TaskStatus | null; // only meaningful when type === "task"; always resolved to a real status for a new task
+	priority: TaskPriority | null; // only meaningful when type === "task"; null = no priority set
 }
 
 export interface EventEditorInitial {
@@ -93,6 +103,8 @@ export interface EventEditorInitial {
 	currency?: string; // ISO 4217, meaningful only alongside cost; absent = DEFAULT_CURRENCY (an entry from before currencies existed)
 	invoiceReminder?: boolean; // meaningful only when type === "reminder"
 	income?: boolean; // meaningful only when type === "reminder"
+	status?: TaskStatus; // meaningful only when type === "task"; absent = "To Do"
+	priority?: TaskPriority | null; // meaningful only when type === "task"; absent/null = no priority set
 }
 
 function toMinutes(hhmm: string): number {
@@ -163,6 +175,13 @@ export class EventEditorModal extends Modal {
 		});
 		titleInput.value = this.initial.title;
 
+		// Computed once up front, regardless of whether the dropdown itself is
+		// shown -- every visibility check below (client/cost/status/priority
+		// rows) needs to know what type is "in effect" even when the dropdown
+		// is locked (Reminders'/Tasks' own "+", or an existing Invoice).
+		const initialValue = dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder, this.initial.income);
+		const currentType = (): DropdownValue => (typeSelect?.value as DropdownValue | undefined) ?? initialValue;
+
 		const isInvoice = this.initial.type === "invoice";
 		let typeSelect: HTMLSelectElement | null = null;
 		if (isInvoice || this.lockedTypeLabel) {
@@ -171,7 +190,6 @@ export class EventEditorModal extends Modal {
 				text: isInvoice ? "Invoice — edited via the Invoice Create Procedure, not here." : this.lockedTypeLabel,
 			});
 		} else {
-			const initialValue = dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder, this.initial.income);
 			typeSelect = contentEl.createEl("select", { cls: "companion-event-editor-type" });
 			// Post is create-only -- offering it here would let switching an
 			// existing Reminder/Event/Task/Meeting's dropdown to "Post" run it
@@ -196,8 +214,7 @@ export class EventEditorModal extends Modal {
 		for (const name of getClientNames(this.app)) datalist.createEl("option", { attr: { value: name } });
 
 		const syncClientVisibility = () => {
-			const currentType = typeSelect?.value ?? this.initial.type;
-			clientRow.toggleClass("companion-hidden", currentType !== "meeting");
+			clientRow.toggleClass("companion-hidden", currentType() !== "meeting");
 		};
 		syncClientVisibility();
 		typeSelect?.addEventListener("change", syncClientVisibility);
@@ -245,18 +262,43 @@ export class EventEditorModal extends Modal {
 			if (currency.code === (this.initial.currency ?? DEFAULT_CURRENCY)) el.selected = true;
 		}
 		const syncCostVisibility = () => {
-			const currentType = typeSelect?.value as DropdownValue | undefined;
-			const required = currentType === "subscription" || currentType === "expense" || currentType === "income";
+			const type = currentType();
+			const required = type === "subscription" || type === "expense" || type === "income";
 			costInput.placeholder = required ? "Required" : "Optional";
-			if (!typeSelect) {
-				costRow.removeClass("companion-hidden");
-				return;
-			}
-			const visible = required || currentType === "invoiceReminder" || costInput.value !== "";
+			const visible = required || type === "invoiceReminder" || costInput.value !== "";
 			costRow.toggleClass("companion-hidden", !visible);
 		};
 		syncCostVisibility();
 		typeSelect?.addEventListener("change", syncCostVisibility);
+
+		// Status and Priority only mean anything on a Task -- shown so a Task
+		// can be fully set up (status/priority alongside date/repeat/remind)
+		// from the same "+ New item" flow the Task board's own "+" now opens,
+		// instead of creating it "To Do"/no-priority and fixing that up
+		// afterwards on the board itself.
+		const statusRow = contentEl.createDiv({ cls: "companion-event-editor-recur-row" });
+		statusRow.createSpan({ text: "Status: " });
+		const statusSelect = statusRow.createEl("select");
+		for (const s of TASK_STATUSES) {
+			const el = statusSelect.createEl("option", { text: s, value: s });
+			if (s === (this.initial.status ?? "To Do")) el.selected = true;
+		}
+
+		const priorityRow = contentEl.createDiv({ cls: "companion-event-editor-recur-row" });
+		priorityRow.createSpan({ text: "Priority: " });
+		const prioritySelect = priorityRow.createEl("select");
+		for (const opt of PRIORITY_OPTIONS) {
+			const el = prioritySelect.createEl("option", { text: opt.label, value: opt.value });
+			if (opt.value === (this.initial.priority ?? "")) el.selected = true;
+		}
+
+		const syncTaskFieldsVisibility = () => {
+			const visible = currentType() === "task";
+			statusRow.toggleClass("companion-hidden", !visible);
+			priorityRow.toggleClass("companion-hidden", !visible);
+		};
+		syncTaskFieldsVisibility();
+		typeSelect?.addEventListener("change", syncTaskFieldsVisibility);
 
 		const dateInput = contentEl.createEl("input", {
 			cls: "companion-event-editor-date",
@@ -333,9 +375,7 @@ export class EventEditorModal extends Modal {
 				titleInput.focus();
 				return;
 			}
-			const selected =
-				(typeSelect?.value as DropdownValue | undefined) ??
-				dropdownValueFor(this.initial.type, this.initial.recur, this.initial.cost, this.initial.invoiceReminder, this.initial.income);
+			const selected = currentType();
 			// Subscription/Expense/Income are meaningless without a cost --
 			// rather than silently save one that'll never show up in Finance
 			// (see subscriptions()/expenses()/incomeReminders() in
@@ -362,6 +402,8 @@ export class EventEditorModal extends Modal {
 				currency: currencySelect.value || DEFAULT_CURRENCY,
 				invoiceReminder: selected === "invoiceReminder",
 				income: selected === "income",
+				status: selected === "task" ? (statusSelect.value as TaskStatus) : null,
+				priority: selected === "task" ? ((prioritySelect.value || null) as TaskPriority | null) : null,
 			});
 		};
 		const onEscape = (e: KeyboardEvent) => {

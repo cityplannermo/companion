@@ -2,6 +2,7 @@ import { Notice, Plugin, WorkspaceLeaf } from "obsidian";
 import { CalendarView, VIEW_TYPE_CALENDAR } from "./CalendarView";
 import { DashboardEmbed, refreshAllDashboardEmbeds } from "./DashboardView";
 import { FinanceView, VIEW_TYPE_FINANCE } from "./FinanceView";
+import { PostsView, VIEW_TYPE_POSTS } from "./PostsView";
 import { RemindersView, VIEW_TYPE_REMINDERS } from "./RemindersView";
 import { TaskBoardView, VIEW_TYPE_TASKS } from "./TaskBoardView";
 import { TimeView, VIEW_TYPE_TIME } from "./TimeView";
@@ -32,9 +33,26 @@ const NOTIFY_LABELS: Partial<Record<CompanionEventType, string>> = {
 	event: "Event",
 };
 
+// One entry per optional tab (everything except the Calendar, which is
+// always on -- see CompanionSettings.showTaskBoard's own comment). Declared
+// once and driven by applyTabVisibility() below, rather than four/five
+// near-identical blocks of "if enabled and not yet added, add; if disabled
+// and still there, remove" -- adding a Posts row here later is a one-line
+// change instead of a new block.
+interface OptionalTab {
+	settingKey: keyof CompanionSettings;
+	viewType: string;
+	ribbonIcon: string;
+	ribbonLabel: string;
+	commandId: string;
+	commandName: string;
+}
+
 export default class CompanionPlugin extends Plugin {
 	private timerStatusEl: HTMLElement;
 	settings: CompanionSettings = { ...DEFAULT_SETTINGS };
+	private optionalTabs: OptionalTab[] = [];
+	private ribbonEls: Map<string, HTMLElement> = new Map(); // keyed by viewType
 	// The end of the window checkDueNotifications last covered -- start of
 	// each tick's window, not a per-item "already notified" set. Doubles as
 	// the guard against a backlog firing all at once right after plugin load
@@ -58,6 +76,7 @@ export default class CompanionPlugin extends Plugin {
 		this.registerView(VIEW_TYPE_REMINDERS, (leaf) => new RemindersView(leaf, this.settings));
 		this.registerView(VIEW_TYPE_FINANCE, (leaf) => new FinanceView(leaf, this.settings));
 		this.registerView(VIEW_TYPE_TIME, (leaf) => new TimeView(leaf, this.settings));
+		this.registerView(VIEW_TYPE_POSTS, (leaf) => new PostsView(leaf, this.settings));
 
 		// The Daily Note embeds a running-timer/today's-agenda/overdue/due-soon
 		// summary directly via a fenced ```companion-dashboard``` code block
@@ -77,19 +96,6 @@ export default class CompanionPlugin extends Plugin {
 		this.addRibbonIcon("compass", "Open calendar", () => {
 			void this.activateView(VIEW_TYPE_CALENDAR);
 		});
-		this.addRibbonIcon("list-checks", "Open task board", () => {
-			void this.activateView(VIEW_TYPE_TASKS);
-		});
-		this.addRibbonIcon("bell", "Open reminders", () => {
-			void this.activateView(VIEW_TYPE_REMINDERS);
-		});
-		this.addRibbonIcon("wallet", "Open finance", () => {
-			void this.activateView(VIEW_TYPE_FINANCE);
-		});
-		this.addRibbonIcon("timer", "Open time tracker", () => {
-			void this.activateView(VIEW_TYPE_TIME);
-		});
-
 		this.addCommand({
 			id: "open-companion-calendar",
 			name: "Open calendar",
@@ -97,34 +103,50 @@ export default class CompanionPlugin extends Plugin {
 				void this.activateView(VIEW_TYPE_CALENDAR);
 			},
 		});
-		this.addCommand({
-			id: "open-companion-tasks",
-			name: "Open task board",
-			callback: () => {
-				void this.activateView(VIEW_TYPE_TASKS);
+
+		this.optionalTabs = [
+			{
+				settingKey: "showTaskBoard",
+				viewType: VIEW_TYPE_TASKS,
+				ribbonIcon: "list-checks",
+				ribbonLabel: "Open task board",
+				commandId: "open-companion-tasks",
+				commandName: "Open task board",
 			},
-		});
-		this.addCommand({
-			id: "open-companion-reminders",
-			name: "Open reminders",
-			callback: () => {
-				void this.activateView(VIEW_TYPE_REMINDERS);
+			{
+				settingKey: "showReminders",
+				viewType: VIEW_TYPE_REMINDERS,
+				ribbonIcon: "bell",
+				ribbonLabel: "Open reminders",
+				commandId: "open-companion-reminders",
+				commandName: "Open reminders",
 			},
-		});
-		this.addCommand({
-			id: "open-companion-finance",
-			name: "Open finance",
-			callback: () => {
-				void this.activateView(VIEW_TYPE_FINANCE);
+			{
+				settingKey: "showFinance",
+				viewType: VIEW_TYPE_FINANCE,
+				ribbonIcon: "wallet",
+				ribbonLabel: "Open finance",
+				commandId: "open-companion-finance",
+				commandName: "Open finance",
 			},
-		});
-		this.addCommand({
-			id: "open-companion-time",
-			name: "Open time tracker",
-			callback: () => {
-				void this.activateView(VIEW_TYPE_TIME);
+			{
+				settingKey: "showTime",
+				viewType: VIEW_TYPE_TIME,
+				ribbonIcon: "timer",
+				ribbonLabel: "Open time tracker",
+				commandId: "open-companion-time",
+				commandName: "Open time tracker",
 			},
-		});
+			{
+				settingKey: "showPosts",
+				viewType: VIEW_TYPE_POSTS,
+				ribbonIcon: "newspaper",
+				ribbonLabel: "Open posts",
+				commandId: "open-companion-posts",
+				commandName: "Open posts",
+			},
+		];
+		this.applyTabVisibility();
 
 		// Reachable from anywhere via the command palette (or a bound hotkey
 		// / mobile toolbar button) without opening a view first -- handy on
@@ -148,7 +170,9 @@ export default class CompanionPlugin extends Plugin {
 						result.invoiceReminder,
 						result.remind,
 						result.income,
-						result.currency
+						result.currency,
+						result.status ?? undefined,
+						result.priority
 					).then(
 						() => this.refreshOpenViews(),
 						(err: Error) => new Notice(err.message)
@@ -374,6 +398,9 @@ export default class CompanionPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TIME)) {
 			if (leaf.view instanceof TimeView) leaf.view.refresh();
 		}
+		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_POSTS)) {
+			if (leaf.view instanceof PostsView) leaf.view.refresh();
+		}
 		refreshAllDashboardEmbeds();
 	}
 
@@ -381,7 +408,37 @@ export default class CompanionPlugin extends Plugin {
 	 * changed daily goal or week-start day shows up without reopening. */
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+		this.applyTabVisibility();
 		this.refreshOpenViews();
+	}
+
+	/** Adds or removes each optional tab's ribbon icon and command to match
+	 * its setting, live -- no restart needed either way. Idempotent (safe
+	 * to call after every settings save, whether or not a tab toggle is
+	 * what changed) rather than tracking which specific key changed. The
+	 * view type itself stays registered either way -- see
+	 * CompanionSettings.showTaskBoard's own comment -- so a workspace layout
+	 * saved with a now-disabled tab open doesn't error out on restore; this
+	 * only controls *reachability* (ribbon/command) and closes any leaf
+	 * that's open right now. */
+	private applyTabVisibility(): void {
+		for (const tab of this.optionalTabs) {
+			const enabled = Boolean(this.settings[tab.settingKey]);
+			const hasRibbon = this.ribbonEls.has(tab.viewType);
+			if (enabled && !hasRibbon) {
+				this.ribbonEls.set(tab.viewType, this.addRibbonIcon(tab.ribbonIcon, tab.ribbonLabel, () => void this.activateView(tab.viewType)));
+				this.addCommand({
+					id: tab.commandId,
+					name: tab.commandName,
+					callback: () => void this.activateView(tab.viewType),
+				});
+			} else if (!enabled && hasRibbon) {
+				this.ribbonEls.get(tab.viewType)?.remove();
+				this.ribbonEls.delete(tab.viewType);
+				this.removeCommand(tab.commandId);
+				this.app.workspace.detachLeavesOfType(tab.viewType);
+			}
+		}
 	}
 
 	async activateView(viewType: string): Promise<void> {

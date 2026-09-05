@@ -4,6 +4,7 @@ import { EventEditorModal } from "./eventEditorUI";
 import { formatDate, formatDisplayShortDate } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
+import { addOverflowMenu } from "./overflowMenu";
 import { Selection } from "./selection";
 import type { CompanionSettings } from "./settings";
 
@@ -18,7 +19,6 @@ type SortKey = "date-asc" | "date-desc" | "title-asc" | "title-desc";
 
 export class RemindersView extends ItemView {
 	private reminders: CompanionReminder[] = [];
-	private creating = false;
 	private sortKey: SortKey = "date-asc";
 	private selection = new Selection();
 	private filterText = "";
@@ -97,9 +97,6 @@ export class RemindersView extends ItemView {
 				this.render();
 			}
 		);
-		if (this.creating) {
-			this.renderQuickCreateForm(root);
-		}
 		this.renderList(root);
 	}
 
@@ -123,67 +120,68 @@ export class RemindersView extends ItemView {
 			restored?.setSelectionRange(this.filterText.length, this.filterText.length);
 		};
 
-		const sortSelect = controls.createEl("select", { cls: "companion-sort-select" });
-		sortSelect.createEl("option", { text: "Sort: Due date (soonest first)", attr: { value: "date-asc" } });
-		sortSelect.createEl("option", { text: "Sort: Due date (latest first)", attr: { value: "date-desc" } });
-		sortSelect.createEl("option", { text: "Sort: Title (A–Z)", attr: { value: "title-asc" } });
-		sortSelect.createEl("option", { text: "Sort: Title (Z–A)", attr: { value: "title-desc" } });
-		sortSelect.value = this.sortKey;
-		sortSelect.onchange = () => {
-			this.sortKey = sortSelect.value as SortKey;
+		const sortOptions: { value: SortKey; label: string }[] = [
+			{ value: "date-asc", label: "Sort: Due date (soonest first)" },
+			{ value: "date-desc", label: "Sort: Due date (latest first)" },
+			{ value: "title-asc", label: "Sort: Title (A–Z)" },
+			{ value: "title-desc", label: "Sort: Title (Z–A)" },
+		];
+		const setSort = (key: SortKey) => {
+			this.sortKey = key;
 			this.render();
 		};
+
+		const sortSelect = controls.createEl("select", { cls: "companion-sort-select companion-mobile-hide" });
+		for (const opt of sortOptions) sortSelect.createEl("option", { text: opt.label, value: opt.value });
+		sortSelect.value = this.sortKey;
+		sortSelect.onchange = () => setSort(sortSelect.value as SortKey);
+
+		// Mobile equivalent of the sort dropdown above -- see overflowMenu.ts.
+		addOverflowMenu(
+			controls,
+			sortOptions.map((opt) => ({ label: opt.label, isActive: this.sortKey === opt.value, onClick: () => setSort(opt.value) }))
+		);
 
 		const addBtn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
 		setIcon(addBtn, "plus");
 		addBtn.createSpan({ text: "Reminder" });
-		addBtn.onclick = () => {
-			this.creating = true;
-			this.render();
-		};
+		addBtn.onclick = () => this.openCreate();
 	}
 
-	/** Inline "new reminder" form — created dated to today, same pattern as the calendar and task board. */
-	private renderQuickCreateForm(parent: HTMLElement): void {
-		const form = parent.createDiv({ cls: "companion-quick-create" });
-		const input = form.createEl("input", { attr: { type: "text", placeholder: "New reminder title…" } });
-
-		let submitted = false;
-		const submit = () => {
-			if (submitted) return; // guards against Enter and the Create button both firing
-			submitted = true;
-			const title = input.value;
-			this.creating = false;
-			createQuickNote(this.app, "reminder", formatDate(new Date()), title).then(
-				() => {
-					this.refresh();
-				},
-				(err: Error) => {
-					new Notice(err.message);
-					this.render();
-				}
-			);
-		};
-		input.onkeydown = (e) => {
-			if (e.key === "Enter") submit();
-			if (e.key === "Escape") {
-				this.creating = false;
-				this.render();
-			}
-		};
-		const controls = form.createDiv({ cls: "companion-quick-create-controls" });
-		const confirm = controls.createEl("button", { text: "Create", cls: "mod-cta" });
-		confirm.onclick = submit;
-		const cancel = controls.createEl("button", {
-			cls: "companion-icon-btn",
-			attr: { "aria-label": "Cancel" },
-		});
-		setIcon(cancel, "x");
-		cancel.onclick = () => {
-			this.creating = false;
-			this.render();
-		};
-		window.setTimeout(() => input.focus());
+	/** Opens the same shared editor modal the pencil uses, locked to plain
+	 * Reminder -- no type dropdown (everything created from here is a
+	 * Reminder by definition, same reasoning as Finance's own narrowed "+")
+	 * and no Cost field unless one's actually entered, matching the same
+	 * cost-visibility rule the modal already applies everywhere else.
+	 * Replaces the old bare-title inline form, which had no way to set a
+	 * date, repeat rule or advance reminder at creation time. */
+	private openCreate(): void {
+		new EventEditorModal(
+			this.app,
+			"create",
+			{ title: "", type: "reminder", date: formatDate(new Date()), timeStr: "00:00" },
+			(result) => {
+				createQuickNote(
+					this.app,
+					"reminder",
+					result.date,
+					result.title,
+					result.allDay ? "00:00" : result.startTime,
+					result.allDay ? undefined : result.endTime,
+					undefined,
+					result.recur,
+					result.cost,
+					result.invoiceReminder,
+					result.remind,
+					result.income,
+					result.currency
+				).then(
+					() => this.refresh(),
+					(err: Error) => new Notice(err.message)
+				);
+			},
+			"Reminder"
+		).open();
 	}
 
 	private renderList(parent: HTMLElement): void {

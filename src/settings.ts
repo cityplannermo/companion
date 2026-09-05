@@ -16,6 +16,27 @@ export interface CompanionSettings {
 	calendarTimezone: string; // IANA zone name (e.g. "Europe/London"); blank = use this device's own timezone
 	dueNotifications: boolean; // fire a desktop notification when a timed Reminder/Task/Event/Meeting starts; off by default. Per-item advance reminders (1 day/week/month before) are set on each item's own "Remind" field instead of here -- see RemindLead in data.ts.
 
+	// Which tabs are switched on -- the Calendar itself always is (it's the
+	// plugin's anchor view, and the Daily Note dashboard embed reads its
+	// underlying data regardless), but everything else can be turned off by
+	// someone who doesn't want it, so the plugin can fit a narrower need
+	// than "all six views" (Mo's own request, once Companion went public:
+	// "someone downloads the companion but doesn't want the finance tab").
+	// Applied live from CompanionPlugin.applyTabVisibility() -- see main.ts.
+	showTaskBoard: boolean;
+	showReminders: boolean;
+	showFinance: boolean;
+	showTime: boolean;
+	showPosts: boolean;
+
+	// Finance's own four sections, hideable independently of the tab as a
+	// whole -- e.g. someone who tracks Subscriptions/Expenses but never
+	// raises an Invoice through Companion can hide the Invoiced section.
+	financeShowSubscriptions: boolean;
+	financeShowExpenses: boolean;
+	financeShowIncome: boolean;
+	financeShowInvoiced: boolean;
+
 	// Invoicing -- Mo's own details are constant across every invoice, so
 	// they live here rather than being retyped (or copied off a previous
 	// invoice) each time. A client's own billing details live on their
@@ -40,6 +61,17 @@ export const DEFAULT_SETTINGS: CompanionSettings = {
 	agendaCollapsed: false,
 	calendarTimezone: "",
 	dueNotifications: false,
+
+	showTaskBoard: true,
+	showReminders: true,
+	showFinance: true,
+	showTime: true,
+	showPosts: true,
+
+	financeShowSubscriptions: true,
+	financeShowExpenses: true,
+	financeShowIncome: true,
+	financeShowInvoiced: true,
 
 	myName: "",
 	myAddress: "",
@@ -118,6 +150,63 @@ export class CompanionSettingTab extends PluginSettingTab {
 							type: "toggle",
 							key: "dueNotifications",
 						},
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Tabs",
+				items: [
+					{
+						name: "Show task board",
+						desc: "Turns off the task board tab entirely -- its ribbon icon, command and any open leaf disappear immediately. Task notes themselves are untouched; re-enabling brings the tab straight back.",
+						control: { type: "toggle", key: "showTaskBoard" },
+					},
+					{
+						name: "Show reminders",
+						desc: "Turns off the reminders tab entirely.",
+						control: { type: "toggle", key: "showReminders" },
+					},
+					{
+						name: "Show finance",
+						desc: "Turns off the finance tab entirely -- see the Finance section below to hide individual sections instead of the whole tab.",
+						control: { type: "toggle", key: "showFinance" },
+					},
+					{
+						name: "Show time tracker",
+						desc: "Turns off the time tracker tab entirely, including the status bar timer.",
+						control: { type: "toggle", key: "showTime" },
+					},
+					{
+						name: "Show posts",
+						desc: "Turns off the posts gallery tab entirely.",
+						control: { type: "toggle", key: "showPosts" },
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Finance sections",
+				items: [
+					{
+						name: "Show Subscriptions",
+						desc: "Hides just this section of the finance tab -- the notes behind it are untouched.",
+						control: { type: "toggle", key: "financeShowSubscriptions" },
+					},
+					{
+						name: "Show Expenses",
+						desc: "",
+						control: { type: "toggle", key: "financeShowExpenses" },
+					},
+					{
+						name: "Show Income",
+						desc: "",
+						control: { type: "toggle", key: "financeShowIncome" },
+					},
+					{
+						name: "Show Invoiced",
+						desc: "",
+						control: { type: "toggle", key: "financeShowInvoiced" },
 					},
 				],
 			},
@@ -275,6 +364,39 @@ export class CompanionSettingTab extends PluginSettingTab {
 					void this.plugin.saveSettings();
 				})
 			);
+
+		new Setting(containerEl).setName("Tabs").setHeading();
+
+		const tabToggle = (key: keyof CompanionSettings, name: string, desc: string) => {
+			new Setting(containerEl)
+				.setName(name)
+				.setDesc(desc)
+				.addToggle((toggle) =>
+					toggle.setValue(Boolean(this.plugin.settings[key])).onChange((value) => {
+						(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+						void this.plugin.saveSettings();
+					})
+				);
+		};
+		tabToggle(
+			"showTaskBoard",
+			"Show task board",
+			"Turns off the task board tab entirely -- its ribbon icon, command and any open leaf disappear immediately. Task notes themselves are untouched; re-enabling brings the tab straight back."
+		);
+		tabToggle("showReminders", "Show reminders", "Turns off the reminders tab entirely.");
+		tabToggle(
+			"showFinance",
+			"Show finance",
+			"Turns off the finance tab entirely -- see the Finance sections heading below to hide individual sections instead of the whole tab."
+		);
+		tabToggle("showTime", "Show time tracker", "Turns off the time tracker tab entirely, including the status bar timer.");
+		tabToggle("showPosts", "Show posts", "Turns off the posts gallery tab entirely.");
+
+		new Setting(containerEl).setName("Finance sections").setHeading();
+		tabToggle("financeShowSubscriptions", "Show Subscriptions", "Hides just this section of the finance tab -- the notes behind it are untouched.");
+		tabToggle("financeShowExpenses", "Show Expenses", "");
+		tabToggle("financeShowIncome", "Show Income", "");
+		tabToggle("financeShowInvoiced", "Show Invoiced", "");
 
 		new Setting(containerEl).setName("Time tracking").setHeading();
 

@@ -317,6 +317,7 @@ export class InvoiceGeneratorModal extends Modal {
 				lineItems: this.lineItems,
 				billing: this.billing,
 				currencySymbol: this.currencySymbol,
+				currencyCode: this.currencyCode,
 				myDetails: {
 					name: this.settings.myName,
 					address: this.settings.myAddress,

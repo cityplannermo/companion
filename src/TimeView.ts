@@ -1,9 +1,11 @@
-import { ItemView, TFile, WorkspaceLeaf, setIcon, Notice } from "obsidian";
+import { App, ItemView, TFile, WorkspaceLeaf, setIcon, Notice } from "obsidian";
 import { TimeEntry, createManualTimeEntry, getClientRate, getTimeEntries, getRunningTimeEntry, startTimeEntry, stopTimeEntry } from "./data";
 import { addMonths, formatDate, formatElapsedMs, formatHours, formatTimeOfDay } from "./dates";
 import { confirmAndDelete, renderSelectionBar, showDeleteMenu } from "./deleteUI";
 import { makeOpenable } from "./openHandlers";
+import { addOverflowMenu } from "./overflowMenu";
 import { Selection } from "./selection";
+import { addStatTile } from "./statTiles";
 import { ManualTimeEntryModal, StartTimerModal } from "./timerUI";
 import { InvoiceGeneratorModal } from "./invoiceUI";
 import type { CompanionSettings } from "./settings";
@@ -35,6 +37,13 @@ export class TimeView extends ItemView {
 	private elapsedEl: HTMLElement | null = null;
 	private mode: Mode = "log";
 	private reportMonth: Date = new Date();
+	// Overrides the month nav above with an arbitrary range once either is
+	// set by hand -- cleared (falling back to reportMonth) whenever Prev/
+	// Next/Today is clicked, so "browse by month" and "custom range" don't
+	// fight over which one's in charge of what's shown.
+	private reportFrom: string | null = null;
+	private reportTo: string | null = null;
+	private reportClient = ""; // "" = every client
 	private expandedGroups: Set<string> = new Set();
 
 	constructor(
@@ -147,7 +156,7 @@ export class TimeView extends ItemView {
 
 		if (this.mode === "log") {
 			if (this.running) this.renderRunningCard(root);
-			this.renderStats(root);
+			this.renderGoal(root);
 			this.renderLog(root);
 		} else if (this.mode === "report") {
 			this.renderReport(root);
@@ -162,32 +171,38 @@ export class TimeView extends ItemView {
 
 		const controls = header.createDiv({ cls: "companion-time-header-controls" });
 
-		const toggle = controls.createDiv({ cls: "companion-mode-toggle" });
+		const setMode = (mode: Mode) => {
+			this.mode = mode;
+			if (mode === "report") this.reportMonth = new Date();
+			this.render();
+		};
+
+		const toggle = controls.createDiv({ cls: "companion-mode-toggle companion-mobile-hide" });
 		const logBtn = toggle.createEl("button", { text: "Log" });
 		const reportBtn = toggle.createEl("button", { text: "Report" });
 		const unbilledBtn = toggle.createEl("button", { text: "Unbilled" });
 		logBtn.toggleClass("is-active", this.mode === "log");
 		reportBtn.toggleClass("is-active", this.mode === "report");
 		unbilledBtn.toggleClass("is-active", this.mode === "unbilled");
-		logBtn.onclick = () => {
-			this.mode = "log";
-			this.render();
-		};
-		reportBtn.onclick = () => {
-			this.mode = "report";
-			this.reportMonth = new Date();
-			this.render();
-		};
-		unbilledBtn.onclick = () => {
-			this.mode = "unbilled";
-			this.render();
-		};
+		logBtn.onclick = () => setMode("log");
+		reportBtn.onclick = () => setMode("report");
+		unbilledBtn.onclick = () => setMode("unbilled");
 
-		const manualBtn = controls.createEl("button", { cls: "companion-btn-icon-text" });
+		const manualBtn = controls.createEl("button", { cls: "companion-btn-icon-text companion-mobile-hide" });
 		setIcon(manualBtn, "list-plus");
 		manualBtn.createSpan({ text: "Add entry" });
 		manualBtn.setAttribute("aria-label", "Log a time entry you forgot to track");
 		manualBtn.onclick = () => this.openManualEntry();
+
+		// Mobile equivalent of the Log/Report/Unbilled toggle and Add entry
+		// button above -- see overflowMenu.ts. Start/Stop timer stays a
+		// normal, always-visible button below (it's the tab's main action).
+		addOverflowMenu(controls, [
+			{ label: "Log", isActive: this.mode === "log", onClick: () => setMode("log") },
+			{ label: "Report", isActive: this.mode === "report", onClick: () => setMode("report") },
+			{ label: "Unbilled", isActive: this.mode === "unbilled", onClick: () => setMode("unbilled") },
+			{ label: "Add entry", icon: "list-plus", onClick: () => this.openManualEntry() },
+		]);
 
 		const btn = controls.createEl("button", { cls: "mod-cta companion-btn-icon-text" });
 		if (this.running) {
@@ -201,33 +216,25 @@ export class TimeView extends ItemView {
 		}
 	}
 
-	private renderStats(parent: HTMLElement): void {
-		const stats = parent.createDiv({ cls: "companion-time-stats" });
-		const todayStr = formatDate(new Date());
-		const weekStart = startOfWeekStr(new Date(), this.settings.weekStartsOn);
-		const monthStart = monthStartStr(new Date());
-
-		const todayHours = sumDuration(this.past.filter((e) => e.date === todayStr));
-		const weekHours = sumDuration(this.past.filter((e) => e.date && e.date >= weekStart));
-		const monthHours = sumDuration(this.past.filter((e) => e.date && e.date >= monthStart));
-
-		stats.createDiv({
-			cls: "companion-time-totals",
-			text: `Today ${formatHours(todayHours)} · This week ${formatHours(weekHours)} · This month ${formatHours(monthHours)}`,
-		});
-
+	/** The daily-goal/streak line only -- the Today/This week/This month
+	 * totals that used to sit alongside it moved to the Report page's stat
+	 * tiles (Mo's own request), since a goal is inherently a "right now"
+	 * thing that belongs on the live Log, not a browsed-period summary. */
+	private renderGoal(parent: HTMLElement): void {
 		const goal = this.settings.dailyGoalHours;
-		if (goal > 0) {
-			const pct = Math.min(100, Math.round((todayHours / goal) * 100));
-			const streak = computeStreak(this.past, goal);
-			const goalLine = stats.createDiv({ cls: "companion-time-goal" });
-			goalLine.createSpan({ text: `Goal ${formatHours(goal)}/day · ${pct}% today` });
-			if (streak > 0) {
-				goalLine.createSpan({
-					cls: "companion-time-streak",
-					text: ` · 🔥 ${streak} day${streak === 1 ? "" : "s"}`,
-				});
-			}
+		if (goal <= 0) return;
+
+		const todayHours = sumDuration(this.past.filter((e) => e.date === formatDate(new Date())));
+		const pct = Math.min(100, Math.round((todayHours / goal) * 100));
+		const streak = computeStreak(this.past, goal);
+		const stats = parent.createDiv({ cls: "companion-time-stats" });
+		const goalLine = stats.createDiv({ cls: "companion-time-goal" });
+		goalLine.createSpan({ text: `Goal ${formatHours(goal)}/day · ${pct}% today` });
+		if (streak > 0) {
+			goalLine.createSpan({
+				cls: "companion-time-streak",
+				text: ` · 🔥 ${streak} day${streak === 1 ? "" : "s"}`,
+			});
 		}
 	}
 
@@ -271,15 +278,13 @@ export class TimeView extends ItemView {
 	}
 
 	private renderReport(parent: HTMLElement): void {
-		const monthEntries = this.past.filter(
-			(e) => e.date && e.date >= monthStartStr(this.reportMonth) && e.date <= monthEndStr(this.reportMonth)
-		);
-
 		const nav = parent.createDiv({ cls: "companion-time-month-nav" });
 		const prev = nav.createEl("button", { attr: { "aria-label": "Previous month" } });
 		setIcon(prev, "chevron-left");
 		prev.onclick = () => {
 			this.reportMonth = addMonths(this.reportMonth, -1);
+			this.reportFrom = null;
+			this.reportTo = null;
 			this.render();
 		};
 		nav.createSpan({ text: this.reportMonth.toLocaleDateString("default", { month: "long", year: "numeric" }) });
@@ -288,24 +293,91 @@ export class TimeView extends ItemView {
 		next.disabled = monthStartStr(this.reportMonth) >= monthStartStr(new Date());
 		next.onclick = () => {
 			this.reportMonth = addMonths(this.reportMonth, 1);
+			this.reportFrom = null;
+			this.reportTo = null;
 			this.render();
 		};
 
-		parent.createDiv({
-			cls: "companion-time-report-summary",
-			text: `Total ${formatHours(sumDuration(monthEntries))}`,
-		});
+		// Client + an optional custom date range, on top of the month nav
+		// above -- setting either date by hand overrides which period the
+		// stats and list below cover, until it's cleared again. Mo's own
+		// request: "let me filter by client and by date range and tell me
+		// time tracked in that range."
+		const filterRow = parent.createDiv({ cls: "companion-time-report-filters" });
+		const clientSelect = filterRow.createEl("select");
+		clientSelect.createEl("option", { text: "All clients", value: "" });
+		for (const name of distinctClients(this.past)) {
+			clientSelect.createEl("option", { text: name, value: name });
+		}
+		clientSelect.value = this.reportClient;
+		clientSelect.onchange = () => {
+			this.reportClient = clientSelect.value;
+			this.render();
+		};
 
-		if (monthEntries.length > 0) {
+		const fromInput = filterRow.createEl("input", { attr: { type: "date", "aria-label": "From date" } });
+		fromInput.value = this.reportFrom ?? "";
+		fromInput.onchange = () => {
+			this.reportFrom = fromInput.value || null;
+			this.render();
+		};
+		filterRow.createSpan({ cls: "companion-quick-create-dash", text: "–" });
+		const toInput = filterRow.createEl("input", { attr: { type: "date", "aria-label": "To date" } });
+		toInput.value = this.reportTo ?? "";
+		toInput.onchange = () => {
+			this.reportTo = toInput.value || null;
+			this.render();
+		};
+		if (this.reportFrom || this.reportTo) {
+			const clear = filterRow.createEl("button", { cls: "companion-icon-btn", attr: { "aria-label": "Clear date range" } });
+			setIcon(clear, "x");
+			clear.onclick = () => {
+				this.reportFrom = null;
+				this.reportTo = null;
+				this.render();
+			};
+		}
+
+		const rangeFrom = this.reportFrom ?? monthStartStr(this.reportMonth);
+		const rangeTo = this.reportTo ?? monthEndStr(this.reportMonth);
+		let periodEntries = this.past.filter((e) => e.date && e.date >= rangeFrom && e.date <= rangeTo);
+		if (this.reportClient) periodEntries = periodEntries.filter((e) => e.client === this.reportClient);
+
+		this.renderReportStats(parent, periodEntries);
+
+		if (periodEntries.length > 0) {
 			const table = parent.createDiv({ cls: "companion-time-client-table" });
-			for (const { client, hours } of breakdownByClient(monthEntries)) {
+			for (const { client, hours } of breakdownByClient(periodEntries)) {
 				const row = table.createDiv({ cls: "companion-time-client-row" });
 				row.createSpan({ cls: "companion-time-client-name", text: client });
 				row.createSpan({ cls: "companion-time-client-hours", text: formatHours(hours) });
 			}
 		}
 
-		this.renderEntryGroups(parent, monthEntries, "Nothing tracked this month.");
+		this.renderEntryGroups(parent, periodEntries, "Nothing tracked in this period.");
+	}
+
+	/** Six stat tiles, the same "at a glance" pattern as Finance's own
+	 * overview row (Mo's own request, once the Log page's plain Today/This
+	 * week/This month line moved here): three fixed "right now" windows
+	 * that don't depend on what's being browsed, the browsed/filtered
+	 * period's own total and billable hours (entries with a client
+	 * attached -- the only ones that could ever become an invoice line),
+	 * and the overall unbilled total, a fixed fact rather than something
+	 * scoped to the period, same as the Unbilled tab's own definition. */
+	private renderReportStats(parent: HTMLElement, periodEntries: TimeEntry[]): void {
+		const todayStr = formatDate(new Date());
+		const weekStart = startOfWeekStr(new Date(), this.settings.weekStartsOn);
+		const monthStart = monthStartStr(new Date());
+
+		const grid = parent.createDiv({ cls: "companion-stat-tiles" });
+		addStatTile(grid, "Today", formatHours(sumDuration(this.past.filter((e) => e.date === todayStr))));
+		addStatTile(grid, "This week", formatHours(sumDuration(this.past.filter((e) => e.date && e.date >= weekStart))));
+		addStatTile(grid, "This month", formatHours(sumDuration(this.past.filter((e) => e.date && e.date >= monthStart))));
+		addStatTile(grid, "This period", formatHours(sumDuration(periodEntries)));
+		addStatTile(grid, "Billable hours", formatHours(sumDuration(periodEntries.filter((e) => !!e.client))));
+		const unbilledTotal = unbilledRows(this.app, this.past).reduce((sum, r) => sum + Math.max(0, r.value), 0);
+		addStatTile(grid, "Unbilled total", `£${unbilledTotal.toFixed(2)}`);
 	}
 
 	/** Everything currently tracked for a client is, by definition,
@@ -317,19 +389,7 @@ export class TimeView extends ItemView {
 	 * the first row. "Generate invoice" jumps straight into the same modal
 	 * the header's own button opens, pre-selected to that client. */
 	private renderUnbilled(parent: HTMLElement): void {
-		const byClient = new Map<string, number>();
-		for (const entry of this.past) {
-			if (!entry.client || entry.duration == null) continue;
-			byClient.set(entry.client, (byClient.get(entry.client) ?? 0) + entry.duration);
-		}
-
-		const rows = Array.from(byClient.entries())
-			.map(([client, hours]) => {
-				const rate = getClientRate(this.app, client);
-				return { client, hours, rate, value: rate != null ? hours * rate : -1 };
-			})
-			.sort((a, b) => b.value - a.value);
-
+		const rows = unbilledRows(this.app, this.past).sort((a, b) => b.value - a.value);
 		const totalValue = rows.reduce((sum, r) => sum + Math.max(0, r.value), 0);
 		parent.createDiv({
 			cls: "companion-time-report-summary",
@@ -529,6 +589,34 @@ function computeStreak(entries: TimeEntry[], goalHours: number): number {
 		cursor.setDate(cursor.getDate() - 1);
 	}
 	return streak;
+}
+
+/** Every distinct client name actually appearing in `entries`, sorted --
+ * backs the Report page's client filter dropdown with only clients that
+ * have tracked time, rather than every hub note tagged `client` (some of
+ * which may never have been timed at all). */
+function distinctClients(entries: TimeEntry[]): string[] {
+	const names = new Set<string>();
+	for (const e of entries) if (e.client) names.add(e.client);
+	return Array.from(names).sort();
+}
+
+/** Groups every entry with a client and a duration by that client, valued
+ * at the client's own `rate` where one's set (`value: -1` marks "no rate",
+ * kept out of any total via `Math.max(0, ...)` rather than dropped, so a
+ * client with no rate still shows up in the Unbilled tab's own list).
+ * Shared by the Unbilled tab's rows and the Report page's "Unbilled total"
+ * tile, so the two numbers can never drift apart. */
+function unbilledRows(app: App, entries: TimeEntry[]): { client: string; hours: number; rate: number | null; value: number }[] {
+	const byClient = new Map<string, number>();
+	for (const entry of entries) {
+		if (!entry.client || entry.duration == null) continue;
+		byClient.set(entry.client, (byClient.get(entry.client) ?? 0) + entry.duration);
+	}
+	return Array.from(byClient.entries()).map(([client, hours]) => {
+		const rate = getClientRate(app, client);
+		return { client, hours, rate, value: rate != null ? hours * rate : -1 };
+	});
 }
 
 function breakdownByClient(entries: TimeEntry[]): { client: string; hours: number }[] {
